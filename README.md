@@ -108,10 +108,37 @@ export GH_TOKEN=ghp_xxx        # PowerShell: $env:GH_TOKEN = 'ghp_xxx'
 npm run release
 ```
 
-O `electron-builder` cria a release no GitHub (como rascunho, por padrão) com
-o instalador NSIS e o `latest.yml` que o `electron-updater` usa para detectar
-versão nova. Publique a release (tirar do modo rascunho) para que os apps já
-instalados passem a enxergá-la.
+O `electron-builder` sobe o instalador NSIS e o `latest.yml` — este último é o
+arquivo que o `electron-updater` lê para detectar versão nova.
+
+### Duas condições sem as quais o update nunca aparece
+
+O `electron-updater` roda na máquina do usuário e consulta o GitHub **sem
+autenticação nenhuma**. Se a release não for legível por um anônimo, ele leva
+404, dispara o evento de erro e o app segue na versão velha em silêncio. Então:
+
+1. **A release precisa estar publicada, não em rascunho.** O padrão do
+   `electron-builder` é criar como _draft_, e `/releases/latest` responde 404
+   para rascunhos. Por isso o `publish` do `package.json` fixa
+   `"releaseType": "release"`. Para publicar uma que ficou pra trás:
+
+   ```bash
+   gh release edit v1.0.0 --repo saulotarsobc/ls-biblia --draft=false
+   ```
+
+2. **O repositório precisa ser público.** Num repo privado a API responde 404
+   para qualquer requisição não autenticada, e não há saída boa: a opção
+   `private: true` do electron-updater embute um `GH_TOKEN` no `app-update.yml`
+   dentro do asar, extraível por qualquer usuário. Se um dia o código precisar
+   voltar a ser privado, aponte o `publish.repo` para um repositório público
+   separado só de releases.
+
+Para conferir que a cadeia está de pé — é exatamente o que o app faz:
+
+```bash
+curl -s https://api.github.com/repos/saulotarsobc/ls-biblia/releases/latest | grep tag_name
+curl -sL https://github.com/saulotarsobc/ls-biblia/releases/latest/download/latest.yml
+```
 
 ## ffmpeg
 

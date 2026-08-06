@@ -54,7 +54,8 @@
       {
         "provider": "github",
         "owner": "saulotarsobc",
-        "repo": "ls-biblia"
+        "repo": "ls-biblia",
+        "releaseType": "release"
       }
     ]
   },
