@@ -2,3 +2,4 @@
 /dist
 /out
 .env
+electron-builder.env

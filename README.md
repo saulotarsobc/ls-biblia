@@ -123,3 +123,26 @@ o ffmpeg do sistema. Para empacotar com o binário embutido:
 ```bash
 npm install-scripts approve ffmpeg-static
 ```
+
+## Releases
+
+### Em ambiente linux
+
+```bash
+GH_TOKEN=ghp_xxx npm run release;
+```
+
+### Em ambiente Windows
+
+```powershell
+setx GH_TOKEN ghp_xxx;
+npm run release;
+```
+
+### Com .env
+
+```powershell
+# extrai o GH_TOKEN do .env e exporta para o ambiente
+setx GH_TOKEN (Get-Content .env | Select-String -Pattern '^GH_TOKEN="(.+)"$' | ForEach-Object { $_.Matches[0].Groups[1].Value });
+npm run release;
+```

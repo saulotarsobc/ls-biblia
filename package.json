@@ -37,7 +37,7 @@
     "zustand": "^5.0.14"
   },
   "build": {
-    "appId": "org.bibleslow.app",
+    "appId": "org.ls-biblia.app",
     "productName": "LS Bíblia",
     "files": [
       "out/**/*",
