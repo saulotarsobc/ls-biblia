@@ -605,6 +605,22 @@ h2 {
   place-items: center;
   height: 100%;
 }
+
+/* ---------------------------------------------------------------- update */
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.update-bar {
+  width: 140px;
+}
 .stack {
   display: flex;
   flex-direction: column;

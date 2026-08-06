@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Book, BookDetail, ChapterFile, DownloadProgress, ExportProgress, ExportRequest } from '../shared/types';
+import type {
+  Book,
+  BookDetail,
+  ChapterFile,
+  DownloadProgress,
+  ExportProgress,
+  ExportRequest,
+  UpdateStatus,
+} from '../shared/types';
 
 type BookResult = { ok: true; data: BookDetail } | { ok: false; unavailable: boolean; error: string };
 
@@ -34,6 +42,10 @@ const api = {
   onExportProgress: (cb: (p: ExportProgress) => void) => subscribe<ExportProgress>('export:progress', cb),
 
   reveal: (path: string): Promise<void> => ipcRenderer.invoke('shell:reveal', path),
+
+  onUpdateStatus: (cb: (s: UpdateStatus) => void) => subscribe<UpdateStatus>('update:status', cb),
+
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('update:install'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

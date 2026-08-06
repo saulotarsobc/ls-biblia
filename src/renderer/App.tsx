@@ -5,6 +5,7 @@ import { ChapterStep } from './steps/ChapterStep.tsx';
 import { QualityStep } from './steps/QualityStep.tsx';
 import { VerseStep } from './steps/VerseStep.tsx';
 import { type Step, useStore } from './store.ts';
+import { UpdateBanner } from './UpdateBanner.tsx';
 
 const ORDER: { key: Step; label: string }[] = [
   { key: 'book', label: 'Livro' },
@@ -69,6 +70,8 @@ export function App() {
         {step === 'quality' && <QualityStep />}
         {step === 'editor' && <Editor />}
       </main>
+
+      <UpdateBanner />
     </div>
   );
 }

@@ -86,6 +86,33 @@ Um dos testes avalia em JS a expressão gerada para o ffmpeg e compara com o
 `zoomAt` usado no preview — é o que garante que o editor mostra exatamente o que
 vai ser renderizado, inclusive dentro de trechos em câmera lenta.
 
+## Auto-update
+
+O app usa `electron-updater` publicando releases no GitHub
+(`saulotarsobc/ls-biblia`). A cada abertura (fora do `npm run dev`), ele
+consulta a última release, baixa em segundo plano e mostra uma faixa no
+rodapé pedindo para reiniciar e instalar — sem o usuário precisar baixar nada
+manualmente. Se ele ignorar o botão, a atualização é aplicada sozinha no
+próximo fechamento do app (`autoInstallOnAppQuit`).
+
+Para publicar uma nova versão:
+
+```bash
+# 1. suba a versão em package.json (semver)
+npm version patch   # ou minor / major
+
+# 2. gere GH_TOKEN com escopo "repo" em https://github.com/settings/tokens
+export GH_TOKEN=ghp_xxx        # PowerShell: $env:GH_TOKEN = 'ghp_xxx'
+
+# 3. builda e publica o instalador + latest.yml na release do GitHub
+npm run release
+```
+
+O `electron-builder` cria a release no GitHub (como rascunho, por padrão) com
+o instalador NSIS e o `latest.yml` que o `electron-updater` usa para detectar
+versão nova. Publique a release (tirar do modo rascunho) para que os apps já
+instalados passem a enxergá-la.
+
 ## ffmpeg
 
 Resolução em ordem: `FFMPEG_PATH` → binário de `ffmpeg-static` → `ffmpeg` do PATH.

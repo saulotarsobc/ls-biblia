@@ -1,10 +1,11 @@
 import { BrowserWindow, app, dialog, ipcMain, protocol, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join, normalize, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { BOOKS } from '../shared/books.ts';
-import type { ChapterFile, DownloadProgress, ExportProgress, ExportRequest } from '../shared/types';
+import type { ChapterFile, DownloadProgress, ExportProgress, ExportRequest, UpdateStatus } from '../shared/types';
 import { downloadChapter, type DownloadHandle } from './download.ts';
 import { buildExport } from './export.ts';
 import { runFfmpeg, type RunHandle } from './ffmpeg.ts';
@@ -108,6 +109,33 @@ function createWindow() {
   }
 }
 
+/**
+ * Checa releases publicados no GitHub (config `build.publish` no package.json).
+ * So faz sentido empacotado: em dev nao existe `app-update.yml` e o electron-updater
+ * lançaria erro so por tentar ler esse arquivo.
+ */
+function setupAutoUpdater() {
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) =>
+    send('update:status', { state: 'available', version: info.version } satisfies UpdateStatus),
+  );
+  autoUpdater.on('download-progress', (p) =>
+    send('update:status', { state: 'downloading', percent: p.percent } satisfies UpdateStatus),
+  );
+  autoUpdater.on('update-downloaded', (info) =>
+    send('update:status', { state: 'downloaded', version: info.version } satisfies UpdateStatus),
+  );
+  autoUpdater.on('error', (err) =>
+    send('update:status', { state: 'error', message: err.message } satisfies UpdateStatus),
+  );
+
+  autoUpdater.checkForUpdates().catch((err) => console.error('checkForUpdates falhou:', err));
+}
+
 app.whenReady().then(() => {
   videosDir = join(app.getPath('userData'), 'videos');
   client = new JwClient(join(app.getPath('userData'), 'catalogo'));
@@ -125,6 +153,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  setupAutoUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -229,3 +258,7 @@ ipcMain.handle('export:cancel', () => {
 });
 
 ipcMain.handle('shell:reveal', (_e, path: string) => shell.showItemInFolder(path));
+
+// ---------------------------------------------------------------- auto-update
+
+ipcMain.handle('update:install', () => autoUpdater.quitAndInstall());

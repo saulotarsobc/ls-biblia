@@ -134,3 +134,9 @@ export interface DownloadedFile {
   quality: Quality;
   bytes: number;
 }
+
+export type UpdateStatus =
+  | { state: 'available'; version: string }
+  | { state: 'downloading'; percent: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string };
