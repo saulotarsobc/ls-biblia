@@ -54,6 +54,7 @@ $ErrorActionPreference = 'Stop'
 . ([System.IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
 
 $repoRoot = Get-RepoRoot
+$previousEncoding = Set-Utf8Console
 Push-Location $repoRoot
 
 try {
@@ -286,8 +287,20 @@ try {
         foreach ($attempt in 1..3) {
             try {
                 $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+
+                # Assets de release são servidos como application/octet-stream,
+                # então .Content vem como byte[]. Um -match sobre array filtra
+                # os elementos em vez de casar o padrão, e $Matches nunca é
+                # preenchido — daí a versão sair vazia.
+                $yaml = if ($response.Content -is [byte[]]) {
+                    [System.Text.Encoding]::UTF8.GetString($response.Content)
+                }
+                else {
+                    [string]$response.Content
+                }
+
                 $published = ''
-                if ($response.Content -match '(?m)^version:\s*(.+)$') {
+                if ($yaml -match '(?m)^version:\s*(.+)$') {
                     $published = $Matches[1].Trim()
                 }
                 if ($published -eq $version) {
@@ -331,4 +344,5 @@ catch {
 }
 finally {
     Pop-Location
+    Restore-ConsoleEncoding -Encoding $previousEncoding
 }

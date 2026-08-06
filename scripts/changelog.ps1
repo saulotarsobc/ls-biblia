@@ -38,6 +38,7 @@ $ErrorActionPreference = 'Stop'
 . ([System.IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
 
 $repoRoot = Get-RepoRoot
+$previousEncoding = Set-Utf8Console
 Push-Location $repoRoot
 try {
     if (-not $Tag) {
@@ -145,4 +146,5 @@ try {
 }
 finally {
     Pop-Location
+    Restore-ConsoleEncoding -Encoding $previousEncoding
 }

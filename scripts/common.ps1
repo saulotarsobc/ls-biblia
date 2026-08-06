@@ -34,6 +34,43 @@ function Write-Warn {
 }
 
 # ---------------------------------------------------------------------------
+# Codificação do console
+# ---------------------------------------------------------------------------
+
+<#
+    Faz o PowerShell ler a saída dos programas externos como UTF-8.
+
+    O PowerShell decodifica o stdout de programas externos usando
+    [Console]::OutputEncoding. Como estes scripts rodam com -NoProfile, esse
+    valor é o code page OEM do console (850 no Windows pt-BR) e não o que
+    estiver no perfil do usuário. O git, o vite e o electron-builder escrevem
+    UTF-8, então sem isto a saída chega embaralhada — "Ôêô" no lugar de "✓",
+    "LS B├¡blia" no lugar de "LS Bíblia".
+
+    Não é só cosmético: o changelog é montado a partir do `git log`, então o
+    texto corrompido acabaria dentro do corpo da release no GitHub.
+
+    Devolve a codificação anterior para o chamador restaurar — a troca também
+    muda o code page do console, que é compartilhado com o terminal.
+#>
+function Set-Utf8Console {
+    $previous = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    }
+    catch {
+        Write-Warn "Não foi possível usar UTF-8 no console: $($_.Exception.Message)"
+    }
+    return $previous
+}
+
+function Restore-ConsoleEncoding {
+    param($Encoding)
+    if ($null -eq $Encoding) { return }
+    try { [Console]::OutputEncoding = $Encoding } catch { }
+}
+
+# ---------------------------------------------------------------------------
 # Execução de programas externos
 # ---------------------------------------------------------------------------
 
