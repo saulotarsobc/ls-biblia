@@ -127,12 +127,58 @@ export interface ExportRequest {
   crf: number;
 }
 
-export interface DownloadedFile {
+// ---------------------------------------------------------------- cache
+
+/** Capitulo ja baixado na pasta de videos. */
+export interface CachedVideo {
   path: string;
   booknum: number;
   track: number;
   quality: Quality;
   bytes: number;
+  /** ultima modificacao, em ms */
+  mtime: number;
+  /** download interrompido (.part): ocupa disco mas nao abre no editor */
+  partial: boolean;
+}
+
+/** Resposta da API guardada em disco para um livro. */
+export interface CachedCatalog {
+  path: string;
+  booknum: number;
+  name: string;
+  chapters: number;
+  bytes: number;
+  fetchedAt: number;
+  /** passou da validade: a proxima consulta busca na rede de novo */
+  stale: boolean;
+}
+
+/** Arquivo dentro das pastas do app que o app nao reconhece. */
+export interface StrayFile {
+  path: string;
+  name: string;
+  bytes: number;
+  where: 'videos' | 'catalogs';
+}
+
+export interface CacheReport {
+  videosDir: string;
+  catalogDir: string;
+  videos: CachedVideo[];
+  catalogs: CachedCatalog[];
+  strays: StrayFile[];
+  /** validade do catalogo, em ms */
+  catalogTtl: number;
+}
+
+export type CacheKind = 'videos' | 'catalogs' | 'all';
+
+export interface CacheRemoval {
+  removed: number;
+  /** bytes liberados */
+  freed: number;
+  errors: string[];
 }
 
 export type UpdateStatus =

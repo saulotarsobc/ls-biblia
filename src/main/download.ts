@@ -3,15 +3,44 @@ import { mkdir, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { ChapterFile, DownloadProgress } from '../shared/types';
+import type { ChapterFile, DownloadProgress, Quality } from '../shared/types';
+import { QUALITIES } from '../shared/types.ts';
 
 export interface DownloadHandle {
   promise: Promise<string>;
   cancel: () => void;
 }
 
-function fileNameFor(booknum: number, track: number, file: ChapterFile): string {
-  return `nwt_${String(booknum).padStart(2, '0')}_${String(track).padStart(3, '0')}_LSB_${file.quality}.mp4`;
+/**
+ * Nome do capitulo no disco.
+ *
+ * A extensao e sempre .mp4, mesmo quando a origem e .m4v: e o mesmo container,
+ * e um padrao unico deixa a pasta legivel para o gerenciador de cache.
+ */
+export function videoFileName(booknum: number, track: number, quality: Quality): string {
+  return `nwt_${String(booknum).padStart(2, '0')}_${String(track).padStart(3, '0')}_LSB_${quality}.mp4`;
+}
+
+const VIDEO_RE = /^nwt_(\d+)_(\d+)_LSB_([0-9]+p)\.mp4(\.part)?$/;
+
+export interface ParsedVideoName {
+  booknum: number;
+  track: number;
+  quality: Quality;
+  /** download interrompido (.part): nao serve para editar */
+  partial: boolean;
+}
+
+/** Inverso de `videoFileName`. Null para qualquer arquivo que o app nao criou. */
+export function parseVideoFileName(name: string): ParsedVideoName | null {
+  const m = VIDEO_RE.exec(name);
+  if (!m || !(QUALITIES as string[]).includes(m[3])) return null;
+  return {
+    booknum: Number(m[1]),
+    track: Number(m[2]),
+    quality: m[3] as Quality,
+    partial: Boolean(m[4]),
+  };
 }
 
 async function exists(p: string): Promise<number | null> {
@@ -37,7 +66,7 @@ export function downloadChapter(
   onProgress: (p: DownloadProgress) => void,
 ): DownloadHandle {
   const controller = new AbortController();
-  const target = join(dir, fileNameFor(booknum, track, file));
+  const target = join(dir, videoFileName(booknum, track, file.quality));
   const partial = `${target}.part`;
 
   const promise = (async () => {

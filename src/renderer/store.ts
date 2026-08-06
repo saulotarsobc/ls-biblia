@@ -45,6 +45,8 @@ interface State {
 
   go: (step: Step) => void;
   chooseBook: (book: Book) => Promise<void>;
+  /** Refaz a consulta ignorando o cache, para o livro ja escolhido. */
+  refreshBook: () => Promise<void>;
   chooseChapter: (chapter: Chapter) => void;
   toggleVerse: (n: number) => void;
   selectVerseRange: (from: number, to: number) => void;
@@ -118,6 +120,15 @@ export const useStore = create<State>((set, get) => ({
     const res = await window.api.getBook(book.booknum);
     if (res.ok) set({ detail: res.data, loadingBook: false });
     else set({ bookError: res.error, loadingBook: false });
+  },
+
+  refreshBook: async () => {
+    const { book } = get();
+    if (!book) return;
+    set({ loadingBook: true, bookError: null });
+    const res = await window.api.getBook(book.booknum, true);
+    if (res.ok) set({ detail: res.data, loadingBook: false });
+    else set({ detail: null, bookError: res.error, loadingBook: false });
   },
 
   chooseChapter: (chapter) => set({ chapter, selectedVerses: [], step: 'verses' }),

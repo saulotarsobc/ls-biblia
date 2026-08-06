@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   Book,
   BookDetail,
+  CacheKind,
+  CacheRemoval,
+  CacheReport,
   ChapterFile,
   DownloadProgress,
   ExportProgress,
@@ -42,6 +45,14 @@ const api = {
   onExportProgress: (cb: (p: ExportProgress) => void) => subscribe<ExportProgress>('export:progress', cb),
 
   reveal: (path: string): Promise<void> => ipcRenderer.invoke('shell:reveal', path),
+
+  cacheReport: (): Promise<CacheReport> => ipcRenderer.invoke('cache:report'),
+
+  removeFromCache: (paths: string[]): Promise<CacheRemoval> => ipcRenderer.invoke('cache:remove', paths),
+
+  clearCache: (kind: CacheKind): Promise<CacheRemoval> => ipcRenderer.invoke('cache:clear', kind),
+
+  openCacheDir: (kind: 'videos' | 'catalogs'): Promise<void> => ipcRenderer.invoke('cache:open-dir', kind),
 
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => subscribe<UpdateStatus>('update:status', cb),
 

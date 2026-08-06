@@ -1,11 +1,19 @@
 import { BrowserWindow, app, dialog, ipcMain, protocol, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { join, normalize, sep } from 'node:path';
+import { mkdir, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { BOOKS } from '../shared/books.ts';
-import type { ChapterFile, DownloadProgress, ExportProgress, ExportRequest, UpdateStatus } from '../shared/types';
+import type {
+  CacheKind,
+  ChapterFile,
+  DownloadProgress,
+  ExportProgress,
+  ExportRequest,
+  UpdateStatus,
+} from '../shared/types';
+import { CacheManager, isInside } from './cache.ts';
 import { downloadChapter, type DownloadHandle } from './download.ts';
 import { buildExport } from './export.ts';
 import { runFfmpeg, type RunHandle } from './ffmpeg.ts';
@@ -25,6 +33,7 @@ protocol.registerSchemesAsPrivileged([
 let win: BrowserWindow | null = null;
 let videosDir = '';
 let client: JwClient;
+let cache: CacheManager;
 let activeDownload: DownloadHandle | null = null;
 let activeExport: RunHandle | null = null;
 
@@ -74,13 +83,6 @@ async function serveWithRange(filePath: string, rangeHeader: string | null): Pro
     status: 200,
     headers: { ...base, 'Content-Length': String(size) },
   });
-}
-
-/** So serve arquivos de dentro da pasta de videos do app. */
-function isInsideVideosDir(candidate: string): boolean {
-  const base = normalize(videosDir).toLowerCase();
-  const target = normalize(candidate).toLowerCase();
-  return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep);
 }
 
 function createWindow() {
@@ -138,7 +140,9 @@ function setupAutoUpdater() {
 
 app.whenReady().then(() => {
   videosDir = join(app.getPath('userData'), 'videos');
-  client = new JwClient(join(app.getPath('userData'), 'catalogo'));
+  const catalogDir = join(app.getPath('userData'), 'catalogo');
+  client = new JwClient(catalogDir);
+  cache = new CacheManager(videosDir, catalogDir);
 
   protocol.handle(SCHEME, (request) => {
     // O caminho vem como UM segmento percent-encoded depois do host fixo. Deixar
@@ -146,7 +150,7 @@ app.whenReady().then(() => {
     // `standard`, o Chromium canonicaliza o "C:" e o handler recebe um caminho
     // que nao resolve — o video falha com MEDIA_ERR_SRC_NOT_SUPPORTED.
     const filePath = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, ''));
-    if (!isInsideVideosDir(filePath)) {
+    if (!isInside(videosDir, filePath)) {
       return new Response('Acesso negado', { status: 403 });
     }
     return serveWithRange(filePath, request.headers.get('range'));
@@ -258,6 +262,20 @@ ipcMain.handle('export:cancel', () => {
 });
 
 ipcMain.handle('shell:reveal', (_e, path: string) => shell.showItemInFolder(path));
+
+// ---------------------------------------------------------------- cache
+
+ipcMain.handle('cache:report', () => cache.report());
+
+ipcMain.handle('cache:remove', (_e, paths: string[]) => cache.remove(paths));
+
+ipcMain.handle('cache:clear', (_e, kind: CacheKind) => cache.clear(kind));
+
+ipcMain.handle('cache:open-dir', async (_e, kind: 'videos' | 'catalogs') => {
+  const dir = cache.dirFor(kind);
+  await mkdir(dir, { recursive: true }); // a pasta so nasce no primeiro download
+  await shell.openPath(dir);
+});
 
 // ---------------------------------------------------------------- auto-update
 

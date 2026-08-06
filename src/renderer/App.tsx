@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Editor } from './editor/Editor.tsx';
 import { BookStep } from './steps/BookStep.tsx';
 import { ChapterStep } from './steps/ChapterStep.tsx';
 import { QualityStep } from './steps/QualityStep.tsx';
 import { VerseStep } from './steps/VerseStep.tsx';
+import { StoragePanel } from './StoragePanel.tsx';
 import { type Step, useStore } from './store.ts';
 import { UpdateBanner } from './UpdateBanner.tsx';
 
@@ -17,6 +18,7 @@ const ORDER: { key: Step; label: string }[] = [
 
 export function App() {
   const { step, go, book, chapter, detail, reset } = useStore();
+  const [storageOpen, setStorageOpen] = useState(false);
   const current = ORDER.findIndex((s) => s.key === step);
 
   // eventos de progresso vindos do processo main
@@ -58,6 +60,9 @@ export function App() {
           </span>
         ))}
         <div className="spacer" />
+        <button className="ghost" onClick={() => setStorageOpen(true)}>
+          Armazenamento
+        </button>
         <button className="ghost" onClick={reset}>
           Recomeçar
         </button>
@@ -70,6 +75,8 @@ export function App() {
         {step === 'quality' && <QualityStep />}
         {step === 'editor' && <Editor />}
       </main>
+
+      {storageOpen && <StoragePanel onClose={() => setStorageOpen(false)} />}
 
       <UpdateBanner />
     </div>
