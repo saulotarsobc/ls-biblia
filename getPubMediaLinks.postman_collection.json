@@ -1,0 +1,361 @@
+{
+  "info": {
+    "_postman_id": "dc4055a6-76e1-41fd-a757-910fd2a62c85",
+    "name": "getPubMediaLinks",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "4296975"
+  },
+  "item": [
+    {
+      "name": "sing",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://app.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?langwritten={{LANG}}&pub=sjj&track=10&fileformat=mp4",
+          "protocol": "https",
+          "host": [
+            "app",
+            "jw-cdn",
+            "org"
+          ],
+          "path": [
+            "apis",
+            "pub-media",
+            "GETPUBMEDIALINKS"
+          ],
+          "query": [
+            {
+              "key": "langwritten",
+              "value": "{{LANG}}"
+            },
+            {
+              "key": "pub",
+              "value": "sjj"
+            },
+            {
+              "key": "track",
+              "value": "10"
+            },
+            {
+              "key": "fileformat",
+              "value": "mp4"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "bible - list books - genesis",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?pub=nwt&langwritten=LSB&txtCMSLang=LSB&booknum=1&alllangs&output=json&fileformat=MP4",
+          "protocol": "https",
+          "host": [
+            "b",
+            "jw-cdn",
+            "org"
+          ],
+          "path": [
+            "apis",
+            "pub-media",
+            "GETPUBMEDIALINKS"
+          ],
+          "query": [
+            {
+              "key": "pub",
+              "value": "nwt"
+            },
+            {
+              "key": "langwritten",
+              "value": "LSB",
+              "description": "ASL | LSB"
+            },
+            {
+              "key": "txtCMSLang",
+              "value": "LSB",
+              "description": "ASL | LSB"
+            },
+            {
+              "key": "booknum",
+              "value": "1"
+            },
+            {
+              "key": "alllangs",
+              "value": null
+            },
+            {
+              "key": "output",
+              "value": "json"
+            },
+            {
+              "key": "fileformat",
+              "value": "MP4",
+              "description": "MP4,M4V,3GP"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "bible - list books - exodo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?pub=nwt&langwritten=LSB&txtCMSLang=LSB&booknum=2&alllangs&output=json&fileformat=MP4",
+          "protocol": "https",
+          "host": [
+            "b",
+            "jw-cdn",
+            "org"
+          ],
+          "path": [
+            "apis",
+            "pub-media",
+            "GETPUBMEDIALINKS"
+          ],
+          "query": [
+            {
+              "key": "pub",
+              "value": "nwt"
+            },
+            {
+              "key": "langwritten",
+              "value": "LSB",
+              "description": "ASL | LSB"
+            },
+            {
+              "key": "txtCMSLang",
+              "value": "LSB",
+              "description": "ASL | LSB"
+            },
+            {
+              "key": "booknum",
+              "value": "2"
+            },
+            {
+              "key": "alllangs",
+              "value": null
+            },
+            {
+              "key": "output",
+              "value": "json"
+            },
+            {
+              "key": "fileformat",
+              "value": "MP4",
+              "description": "MP4,M4V,3GP"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "bible - list books - salmos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?pub=nwt&langwritten=LSB&txtCMSLang=LSB&booknum=18&alllangs&output=json&fileformat=MP4",
+          "protocol": "https",
+          "host": [
+            "b",
+            "jw-cdn",
+            "org"
+          ],
+          "path": [
+            "apis",
+            "pub-media",
+            "GETPUBMEDIALINKS"
+          ],
+          "query": [
+            {
+              "key": "pub",
+              "value": "nwt"
+            },
+            {
+              "key": "langwritten",
+              "value": "LSB",
+              "description": "ASL | LSB"
+            },
+            {
+              "key": "txtCMSLang",
+              "value": "LSB",
+              "description": "ASL | LSB"
+            },
+            {
+              "key": "booknum",
+              "value": "18"
+            },
+            {
+              "key": "alllangs",
+              "value": null
+            },
+            {
+              "key": "output",
+              "value": "json"
+            },
+            {
+              "key": "fileformat",
+              "value": "MP4",
+              "description": "MP4,M4V,3GP"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "bible - track",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://app.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?langwritten={{LANG}}&fileformat=MP4&pub=nwt&booknum=1",
+          "protocol": "https",
+          "host": [
+            "app",
+            "jw-cdn",
+            "org"
+          ],
+          "path": [
+            "apis",
+            "pub-media",
+            "GETPUBMEDIALINKS"
+          ],
+          "query": [
+            {
+              "key": "langwritten",
+              "value": "{{LANG}}",
+              "description": "{{LANG}}"
+            },
+            {
+              "key": "fileformat",
+              "value": "MP4",
+              "description": "JWPUB,EPUB,MP4"
+            },
+            {
+              "key": "pub",
+              "value": "nwt"
+            },
+            {
+              "key": "booknum",
+              "value": "1"
+            },
+            {
+              "key": "track",
+              "value": "1",
+              "description": "| chapter number",
+              "disabled": true
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "mwb",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://app.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?langwritten={{LANG}}&booknum=20&fileformat=MP4&pub=mwb&track=1",
+          "protocol": "https",
+          "host": [
+            "app",
+            "jw-cdn",
+            "org"
+          ],
+          "path": [
+            "apis",
+            "pub-media",
+            "GETPUBMEDIALINKS"
+          ],
+          "query": [
+            {
+              "key": "langwritten",
+              "value": "{{LANG}}",
+              "description": "{{LANG}}"
+            },
+            {
+              "key": "booknum",
+              "value": "20"
+            },
+            {
+              "key": "fileformat",
+              "value": "MP4",
+              "description": "JWPUB,EPUB,MP4"
+            },
+            {
+              "key": "pub",
+              "value": "mwb"
+            },
+            {
+              "key": "track",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "new sing",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://download-a.akamaihd.net/files/media_publication/24/osg_LSB_094_r720P.mp4",
+          "protocol": "https",
+          "host": [
+            "download-a",
+            "akamaihd",
+            "net"
+          ],
+          "path": [
+            "files",
+            "media_publication",
+            "24",
+            "osg_LSB_094_r720P.mp4"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "LANG",
+      "value": "LSB",
+      "type": "string"
+    }
+  ]
+}

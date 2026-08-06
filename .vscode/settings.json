@@ -1,0 +1,8 @@
+{
+  "js/ts.tsdk.path": "node_modules\\typescript\\lib",
+  "editor.codeActionsOnSave": {
+    "source.removeUnusedImports": "explicit",
+    "source.addMissingImports.ts": "explicit",
+    "source.organizeImports": "explicit"
+  }
+}
