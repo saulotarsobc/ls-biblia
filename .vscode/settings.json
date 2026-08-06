@@ -1,8 +1,20 @@
 {
-  "js/ts.tsdk.path": "node_modules\\typescript\\lib",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
     "source.removeUnusedImports": "explicit",
     "source.addMissingImports.ts": "explicit",
     "source.organizeImports": "explicit"
-  }
+  },
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.enableSmartCommit": true,
+  "git.openRepositoryInParentFolders": "always",
+  "git.suggestSmartCommit": false,
+  "github.copilot.chat.commitMessageGeneration.instructions": [
+    {
+      "file": "/.github/commit.md"
+    }
+  ],
+  "js/ts.tsdk.path": "node_modules/typescript/lib"
 }

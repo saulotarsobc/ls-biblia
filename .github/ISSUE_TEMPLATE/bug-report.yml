@@ -1,0 +1,109 @@
+name: Reportar bug
+description: Use este formulário para registrar falhas, regressões ou comportamento incorreto.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Preencha o máximo de contexto objetivo possível. Para este repositório, informe sempre o módulo afetado e o ambiente em que o problema acontece.
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Área afetada
+      description: Selecione os módulos impactados pelo problema.
+      multiple: true
+      options:
+        - api (NestJS / endpoints)
+        - app (Next.js / PWA)
+        - mobile (Expo)
+        - bot (Telegram)
+        - database (Prisma / migrations)
+        - infra (Docker / Kubernetes / deploy)
+        - docs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ambiente
+      description: Onde o problema foi observado.
+      multiple: true
+      options:
+        - Local development
+        - Staging
+        - Production
+        - Web
+        - PWA instalada
+        - Android
+        - iOS
+        - Telegram
+        - API
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Tela, rota, endpoint ou comando afetado
+      description: "Exemplo: `/api/invites`, `app/src/app/designacoes`, `/start`, `pnpm --dir api dev`."
+      placeholder: Informe o ponto exato onde o problema aparece
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Comportamento atual
+      description: Descreva o erro como ele acontece hoje.
+      placeholder: O que está quebrado, inconsistente ou inesperado?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Comportamento esperado
+      description: Descreva o resultado correto esperado.
+      placeholder: O que deveria acontecer?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Passos para reproduzir
+      description: Liste uma sequência curta e determinística para reproduzir.
+      placeholder: |
+        1. Abrir ...
+        2. Clicar em ...
+        3. Executar ...
+        4. Observar ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, payloads ou evidências
+      description: Cole stack trace, resposta da API, payload, prints ou qualquer evidência útil.
+      render: shell
+
+  - type: textarea
+    id: extra-context
+    attributes:
+      label: Contexto adicional
+      description: Impacto, frequência, suspeita de regressão, workaround conhecido, links relacionados.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Verificações
+      options:
+        - label: Verifiquei se já existe issue parecida aberta ou fechada.
+          required: true
+        - label: Incluí módulo afetado, ambiente e passos claros para reproduzir.
+          required: true

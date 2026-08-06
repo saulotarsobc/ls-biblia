@@ -1,0 +1,65 @@
+name: Melhoria de documentação
+description: Use este formulário para documentação faltando, incorreta ou desatualizada.
+title: "[Docs]: "
+labels:
+  - doc
+body:
+  - type: dropdown
+    id: docs-area
+    attributes:
+      label: Área da documentação
+      description: Onde a documentação precisa de ajuste.
+      multiple: true
+      options:
+        - Repositório raiz
+        - api
+        - app
+        - mobile
+        - bot
+        - deploy / infraestrutura
+        - processos internos
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: Arquivo, pasta ou página envolvida
+      description: "Exemplo: `api/README`, `mobile/README`, `.github`, `PRIVACY_POLICY.md`."
+      placeholder: Informe o local atual ou onde a documentação deveria existir
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: O que está errado ou faltando
+      description: Descreva a lacuna documental com objetividade.
+      placeholder: A instrução está desatualizada, faltando, ambígua ou incorreta.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: O que deveria existir
+      description: Descreva o conteúdo esperado ou a correção necessária.
+      placeholder: Qual orientação ou documentação precisa ser adicionada ou ajustada?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto adicional
+      description: Erros encontrados ao seguir a documentação, links úteis, público-alvo, prints.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Verificações
+      options:
+        - label: Confirmei que a melhoria é de documentação, não bug funcional.
+          required: true
+        - label: Informei claramente o local atual e a correção esperada.
+          required: true

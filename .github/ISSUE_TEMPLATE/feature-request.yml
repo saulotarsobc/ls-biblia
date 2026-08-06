@@ -1,0 +1,94 @@
+name: Solicitar melhoria
+description: Use este formulário para propor nova funcionalidade, evolução de fluxo ou melhoria relevante.
+title: "[Feature]: "
+labels:
+  - feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use este formulário para pedidos objetivos. Se a proposta tocar mais de um módulo, selecione todos os afetados.
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Área da melhoria
+      description: Quais partes do produto ou da plataforma devem evoluir?
+      multiple: true
+      options:
+        - api (NestJS / endpoints)
+        - app (Next.js / PWA)
+        - mobile (Expo)
+        - bot (Telegram)
+        - database (Prisma / migrations)
+        - infra (Docker / Kubernetes / deploy)
+        - docs
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema ou oportunidade
+      description: Qual dor real esta melhoria resolve?
+      placeholder: Hoje existe uma limitação, retrabalho, ausência de fluxo ou comportamento que precisa evoluir.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: Descreva a solução desejada de forma direta.
+      placeholder: O que você quer que exista ou mude?
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-flow
+    attributes:
+      label: Fluxo esperado
+      description: Explique como a funcionalidade deve funcionar do ponto de vista do usuário.
+      placeholder: Quem usa, em qual tela/endpoint e qual resultado final espera.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Tipo de impacto técnico esperado
+      description: Ajuda a triagem inicial da issue.
+      multiple: true
+      options:
+        - Novo endpoint ou mudança na API
+        - Alteração de banco ou migration
+        - Alteração de interface web
+        - Alteração de experiência mobile
+        - Ajuste em autenticação ou permissões
+        - Mudança em integração externa
+        - Ajuste de deploy / infraestrutura
+        - Apenas documentação
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas ou observações
+      description: Workarounds atuais, alternativas consideradas, dependências ou restrições conhecidas.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Referências
+      description: Links de telas, issues relacionadas, endpoint atual, exemplos ou prints.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Verificações
+      options:
+        - label: Verifiquei se a ideia já não foi registrada em outra issue.
+          required: true
+        - label: Descrevi a dor real e o resultado esperado, não apenas uma solução solta.
+          required: true
