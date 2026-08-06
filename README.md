@@ -97,16 +97,12 @@ próximo fechamento do app (`autoInstallOnAppQuit`).
 
 Para publicar uma nova versão:
 
-```bash
-# 1. suba a versão em package.json (semver)
-npm version patch   # ou minor / major
-
-# 2. gere GH_TOKEN com escopo "repo" em https://github.com/settings/tokens
-export GH_TOKEN=ghp_xxx        # PowerShell: $env:GH_TOKEN = 'ghp_xxx'
-
-# 3. builda e publica o instalador + latest.yml na release do GitHub
-npm run release
+```powershell
+# sobe a versão, roda os testes, cria tag + release e publica os assets
+pwsh .\scripts\release.ps1 -Bump patch   # ou minor / major
 ```
+
+Detalhes do script em [Releases](#releases).
 
 O `electron-builder` sobe o instalador NSIS e o `latest.yml` — este último é o
 arquivo que o `electron-updater` lê para detectar versão nova.
@@ -153,23 +149,54 @@ npm install-scripts approve ffmpeg-static
 
 ## Releases
 
-### Em ambiente linux
-
-```bash
-GH_TOKEN=ghp_xxx npm run release;
-```
-
-### Em ambiente Windows
+A publicação é feita da máquina local por scripts PowerShell em [`scripts/`](scripts).
+Não há CI: o que sai na release é exatamente o que foi buildado aqui.
 
 ```powershell
-setx GH_TOKEN ghp_xxx;
-npm run release;
+npm run release          # publica a versão que está no package.json
+npm run release:dry      # simula tudo, sem criar tag, release nem assets
+npm run release:notes    # só imprime o changelog que seria usado
 ```
 
-### Com .env
+Para passar parâmetros, chame o script direto — o npm não repassa flags de
+traço simples:
 
 ```powershell
-# extrai o GH_TOKEN do .env e exporta para o ambiente
-setx GH_TOKEN (Get-Content .env | Select-String -Pattern '^GH_TOKEN="(.+)"$' | ForEach-Object { $_.Matches[0].Groups[1].Value });
-npm run release;
+pwsh .\scripts\release.ps1 -Bump patch     # npm version + publicação
+pwsh .\scripts\release.ps1 -SkipTests      # pula npm test
+pwsh .\scripts\release.ps1 -Force          # aceita árvore suja / move tag existente
+pwsh .\scripts\release.ps1 -SkipVerify     # pula a checagem do latest.yml
 ```
+
+### O que o `release.ps1` faz
+
+1. Confere `git`, `node`, `npm`, `gh`, a versão do Node contra o `.nvmrc` e se
+   a árvore está limpa.
+2. Sobe a versão com `npm version`, se `-Bump` for passado.
+3. Roda `npm test`.
+4. Envia os commits pendentes da branch atual.
+5. Cria (ou mova, com `-Force`) a tag `v<versão>` e a envia para o remoto.
+6. Monta o changelog agrupando os commits pelos tipos de
+   [`.github/commit.md`](.github/commit.md) — o mesmo texto sai em
+   `dist/release-notes.md`.
+7. Cria a Release no GitHub com esse changelog mais as notas automáticas do
+   GitHub. Se a release já existir, o corpo é preservado.
+8. Roda `npm run release:publish` (build + `electron-builder --publish always`),
+   que sobe `latest.yml`, o instalador NSIS e o `.blockmap`.
+9. Baixa o `latest.yml` publicado **sem autenticação** e confere a versão — é
+   exatamente o que o `electron-updater` faz na máquina do usuário, então isso
+   pega na hora os dois problemas descritos acima (release em rascunho ou
+   repositório privado).
+
+Todas as etapas são idempotentes: rodar de novo com a mesma versão não duplica
+tag nem release, e o electron-builder substitui os assets já existentes.
+
+### Token do GitHub
+
+O script procura o token nesta ordem, e para no primeiro que encontrar:
+
+1. variável de ambiente `GH_TOKEN` ou `GITHUB_TOKEN`;
+2. `electron-builder.env` ou `.env` (ambos no `.gitignore`);
+3. `gh auth token`, se você já tiver feito `gh auth login`.
+
+Ou seja: com o `gh` autenticado, não é preciso configurar nada.

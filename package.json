@@ -15,7 +15,10 @@
     "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
     "preview": "electron-vite preview",
     "dist": "npm run build && electron-builder",
-    "release": "npm run build && electron-builder --publish always",
+    "release": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/release.ps1",
+    "release:dry": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/release.ps1 -DryRun",
+    "release:notes": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/changelog.ps1",
+    "release:publish": "npm run build && electron-builder --publish always",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
     "clear": "rimraf out dist"
   },
