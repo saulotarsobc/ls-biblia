@@ -6,6 +6,9 @@
     "name": "Saulo Costa"
   },
   "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "test": "node --experimental-strip-types src/shared/__tests__/timeline.test.ts && node --experimental-strip-types src/main/__tests__/duracao.test.ts && node --experimental-strip-types src/main/__tests__/mediaurl.test.ts && node --experimental-strip-types src/main/__tests__/catalogo.test.ts && node --experimental-strip-types src/main/__tests__/cache.test.ts",
