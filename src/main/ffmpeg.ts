@@ -1,45 +1,51 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
-/** electron-builder desempacota os binarios do asar; corrige o caminho. */
-function unpacked(p: string): string {
-  return p.replace('app.asar', 'app.asar.unpacked');
+/** Binarios copiados por extraResources para resources/bin no app instalado. */
+function packagedBinary(name: string): string | null {
+  const resourcesPath = process.resourcesPath;
+  if (!resourcesPath) return null;
+  const path = join(resourcesPath, 'bin', name);
+  return existsSync(path) ? path : null;
 }
 
 /**
- * Os pacotes com binario embutido sao opcionais: se o install script deles nao
- * rodou, o modulo existe mas o executavel nao. Por isso cada caminho e conferido
- * antes de ser usado, com o ffmpeg do PATH como ultimo recurso.
+ * Em desenvolvimento, usa os executaveis baixados pelos pacotes static. No app
+ * instalado, eles ficam fora do asar e sao encontrados por packagedBinary().
  */
 function bundled(load: () => string | undefined): string | null {
   try {
     const resolved = load();
     if (!resolved) return null;
-    const p = unpacked(resolved);
-    return existsSync(p) ? p : null;
+    return existsSync(resolved) ? resolved : null;
   } catch {
     return null;
   }
 }
 
-/** Ordem: variavel de ambiente -> binario empacotado -> ffmpeg do PATH. */
+/** Ordem: variavel de ambiente -> resources/bin -> pacote de dev -> PATH. */
 export function resolveFfmpeg(): string {
   if (process.env.FFMPEG_PATH && existsSync(process.env.FFMPEG_PATH)) return process.env.FFMPEG_PATH;
   return (
+    packagedBinary('ffmpeg.exe') ??
     bundled(() => {
       const m = require('ffmpeg-static');
       return m?.default ?? m;
-    }) ?? 'ffmpeg'
+    }) ??
+    'ffmpeg'
   );
 }
 
 export function resolveFfprobe(): string {
   if (process.env.FFPROBE_PATH && existsSync(process.env.FFPROBE_PATH)) return process.env.FFPROBE_PATH;
   return (
+    packagedBinary('ffprobe.exe') ??
     bundled(() => {
       const m = require('ffprobe-static');
       return (m?.default ?? m)?.path;
-    }) ?? 'ffprobe'
+    }) ??
+    'ffprobe'
   );
 }
 

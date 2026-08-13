@@ -138,10 +138,13 @@ curl -sL https://github.com/saulotarsobc/ls-biblia/releases/latest/download/late
 
 ## ffmpeg
 
-Resolução em ordem: `FFMPEG_PATH` → binário de `ffmpeg-static` → `ffmpeg` do PATH.
+Resolução em ordem: `FFMPEG_PATH` → `resources/bin/ffmpeg.exe` → binário de
+`ffmpeg-static` (desenvolvimento) → `ffmpeg` do PATH.
 
-O install script do `ffmpeg-static` foi bloqueado nesta máquina, então o app usa
-o ffmpeg do sistema. Para empacotar com o binário embutido:
+O `electron-builder` copia explicitamente `ffmpeg.exe` e `ffprobe.exe` para
+`resources/bin` através de `extraResources`. Assim, o aplicativo instalado não
+depende de uma instalação de ffmpeg no sistema. Se o install script do
+`ffmpeg-static` estiver bloqueado antes do build, libere-o com:
 
 ```bash
 npm install-scripts approve ffmpeg-static
