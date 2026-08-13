@@ -19,7 +19,7 @@
     "release:dry": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/release.ps1 -DryRun",
     "release:notes": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/changelog.ps1",
     "release:publish": "npm run build && electron-builder --publish always",
-    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
+    "format": "prettier --write \"src/**",
     "clear": "rimraf out dist"
   },
   "dependencies": {
@@ -28,6 +28,7 @@
     "ffprobe-static": "^3.1.0"
   },
   "devDependencies": {
+    "@types/ffprobe-static": "^2.0.3",
     "@types/node": "^26.2.0",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
