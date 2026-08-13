@@ -1,0 +1,7 @@
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  ffmpeg-static: true
+minimumReleaseAgeExclude:
+  - zustand@5.0.15
