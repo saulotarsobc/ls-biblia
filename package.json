@@ -18,7 +18,7 @@
     "release": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/release.ps1",
     "release:dry": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/release.ps1 -DryRun",
     "release:notes": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/changelog.ps1",
-    "release:publish": "npm run build && electron-builder --publish always",
+    "release:publish": "npm run clear && npm run build && electron-builder --publish always",
     "format": "prettier --write \"src/**",
     "clear": "rimraf out dist"
   },
@@ -71,7 +71,8 @@
         "provider": "github",
         "owner": "saulotarsobc",
         "repo": "ls-biblia",
-        "releaseType": "release"
+        "releaseType": "release",
+        "timeout": 900000
       }
     ]
   },

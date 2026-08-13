@@ -273,3 +273,112 @@ function Write-Utf8File {
     $encoding = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $Content, $encoding)
 }
+
+<#
+    Confere se os três artefatos de auto-update foram gerados juntos.
+
+    Isso evita publicar um latest.yml que tenha sobrado de uma build anterior
+    e cujo tamanho/hash não corresponda ao instalador recém-criado.
+#>
+function Get-ReleaseArtifacts {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Version
+    )
+
+    $dist = [System.IO.Path]::Combine($RepoRoot, 'dist')
+    $yamlPath = [System.IO.Path]::Combine($dist, 'latest.yml')
+    if (-not (Test-Path -LiteralPath $yamlPath -PathType Leaf)) {
+        throw 'A build terminou sem gerar dist\latest.yml.'
+    }
+
+    $yaml = Get-Content -LiteralPath $yamlPath -Raw -Encoding UTF8
+    if ($yaml -notmatch '(?m)^version:\s*(\S+)\s*$') {
+        throw 'dist\latest.yml não contém uma versão válida.'
+    }
+    $yamlVersion = $Matches[1].Trim()
+    if ($yamlVersion -ne $Version) {
+        throw "dist\latest.yml aponta para $yamlVersion, mas a versão esperada é $Version."
+    }
+
+    if ($yaml -notmatch '(?m)^\s+-\s+url:\s*(\S+)\s*$') {
+        throw 'dist\latest.yml não contém o nome do instalador.'
+    }
+    $remoteInstallerName = $Matches[1].Trim()
+
+    if ($yaml -notmatch '(?m)^\s+size:\s*(\d+)\s*$') {
+        throw 'dist\latest.yml não contém o tamanho do instalador.'
+    }
+    $expectedSize = [int64]$Matches[1]
+
+    if ($yaml -notmatch '(?m)^sha512:\s*(\S+)\s*$') {
+        throw 'dist\latest.yml não contém o hash do instalador.'
+    }
+    $expectedHash = $Matches[1].Trim()
+
+    $installers = @(Get-ChildItem -LiteralPath $dist -File -Filter '*.exe')
+    if ($installers.Count -ne 1) {
+        throw "Esperado exatamente um instalador .exe em dist, mas foram encontrados $($installers.Count)."
+    }
+    $installer = $installers[0]
+    if ($installer.Length -ne $expectedSize) {
+        throw "O tamanho do instalador ($($installer.Length)) não corresponde ao latest.yml ($expectedSize)."
+    }
+
+    $stream = [System.IO.File]::OpenRead($installer.FullName)
+    $sha512 = [System.Security.Cryptography.SHA512]::Create()
+    try {
+        $actualHash = [Convert]::ToBase64String($sha512.ComputeHash($stream))
+    }
+    finally {
+        $sha512.Dispose()
+        $stream.Dispose()
+    }
+    if ($actualHash -ne $expectedHash) {
+        throw 'O hash do instalador não corresponde ao latest.yml.'
+    }
+
+    $blockmapPath = "$($installer.FullName).blockmap"
+    if (-not (Test-Path -LiteralPath $blockmapPath -PathType Leaf)) {
+        throw "A build terminou sem gerar $($installer.Name).blockmap."
+    }
+
+    return @(
+        [pscustomobject]@{ Name = $remoteInstallerName; Size = $installer.Length },
+        [pscustomobject]@{ Name = "$remoteInstallerName.blockmap"; Size = (Get-Item -LiteralPath $blockmapPath).Length },
+        [pscustomobject]@{ Name = 'latest.yml'; Size = (Get-Item -LiteralPath $yamlPath).Length }
+    )
+}
+
+<#
+    Garante que o GitHub recebeu todos os arquivos e os tamanhos completos.
+    O electron-builder envia em paralelo; conferir apenas um asset pode deixar
+    passar uma publicação interrompida no meio do instalador grande.
+#>
+function Assert-GitHubReleaseAssets {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][object[]]$ExpectedArtifacts
+    )
+
+    $result = Invoke-Native -FilePath 'gh' -Arguments @(
+        'release', 'view', $Tag,
+        '--repo', $Repository,
+        '--json', 'assets'
+    ) -Silent
+    $release = ($result.Lines -join "`n") | ConvertFrom-Json
+
+    foreach ($expected in $ExpectedArtifacts) {
+        $matchingAssets = @($release.assets | Where-Object { $_.name -ceq $expected.Name })
+        if ($matchingAssets.Count -ne 1) {
+            throw "O asset '$($expected.Name)' não foi encontrado na Release $Tag."
+        }
+        if ([int64]$matchingAssets[0].size -ne [int64]$expected.Size) {
+            throw "O asset '$($expected.Name)' chegou incompleto: $($matchingAssets[0].size) bytes no GitHub, $($expected.Size) esperados."
+        }
+        if ($matchingAssets[0].state -ne 'uploaded') {
+            throw "O asset '$($expected.Name)' está no estado '$($matchingAssets[0].state)' no GitHub."
+        }
+    }
+}

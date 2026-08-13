@@ -222,7 +222,7 @@ try {
     # =======================================================================
     # 7. Release no GitHub
     # =======================================================================
-    Write-Step "7/8  Criando a Release $tag"
+    Write-Step "7/8  Preparando a Release $tag"
 
     $exists = (Invoke-Native -FilePath 'gh' -Arguments @('release', 'view', $tag, '--repo', "$($target.Owner)/$($target.Repo)") -Silent -AllowFailure).ExitCode -eq 0
 
@@ -230,7 +230,7 @@ try {
         Write-Ok "A Release $tag já existe — o corpo atual foi preservado."
     }
     elseif ($DryRun) {
-        Write-Info "[dry-run] gh release create $tag --notes-file dist\release-notes.md --generate-notes"
+        Write-Info "[dry-run] gh release create $tag --draft --notes-file dist\release-notes.md --generate-notes"
     }
     else {
         # --generate-notes acrescenta as notas automáticas do GitHub (PRs e o
@@ -244,9 +244,10 @@ try {
             '--title', $tag,
             '--notes-file', $notesFile,
             '--generate-notes',
+            '--draft',
             '--verify-tag'
         ) | Out-Null
-        Write-Ok "Release $tag criada."
+        Write-Ok "Release $tag criada como rascunho até os assets serem validados."
     }
 
     # =======================================================================
@@ -258,6 +259,8 @@ try {
         Write-Info '[dry-run] npm run release:publish'
     }
     else {
+        # release:publish começa removendo dist/ e out/. Assim o instalador,
+        # o blockmap e o latest.yml pertencem sempre à mesma build.
         # EP_GH_IGNORE_TIME é essencial: sem ela o electron-builder se recusa
         # a subir assets numa release publicada há mais de 2 horas e encerra
         # com sucesso, apenas logando um aviso — a publicação falharia em
@@ -269,7 +272,24 @@ try {
         finally {
             Remove-Item Env:\EP_GH_IGNORE_TIME -ErrorAction SilentlyContinue
         }
-        Write-Ok 'Assets enviados.'
+
+        $artifacts = @(Get-ReleaseArtifacts -RepoRoot $repoRoot -Version $version)
+        Assert-GitHubReleaseAssets `
+            -Repository "$($target.Owner)/$($target.Repo)" `
+            -Tag $tag `
+            -ExpectedArtifacts $artifacts
+        Write-Ok 'Instalador, blockmap e latest.yml enviados e conferidos.'
+
+        # Só agora a versão fica visível no endpoint /releases/latest. Isso
+        # impede que o auto-update encontre uma Release ainda incompleta e
+        # não depende da heurística automática do GitHub para escolher Latest.
+        Invoke-Native -FilePath 'gh' -Arguments @(
+            'release', 'edit', $tag,
+            '--repo', "$($target.Owner)/$($target.Repo)",
+            '--draft=false',
+            '--latest'
+        ) | Out-Null
+        Write-Ok "Release $tag publicada e marcada explicitamente como Latest."
     }
 
     # =======================================================================
@@ -284,7 +304,8 @@ try {
         # nunca chega a ninguém.
         $url = "https://github.com/$($target.Owner)/$($target.Repo)/releases/latest/download/latest.yml"
         $ok = $false
-        foreach ($attempt in 1..3) {
+        $lastVerificationError = 'erro desconhecido'
+        foreach ($attempt in 1..5) {
             try {
                 $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
 
@@ -308,21 +329,20 @@ try {
                     $ok = $true
                 }
                 else {
-                    Write-Warn "latest.yml acessível, mas com a versão '$published' (esperada: $version)."
-                    $ok = $true
+                    throw "latest.yml público aponta para '$published' (esperada: $version)."
                 }
                 break
             }
             catch {
-                if ($attempt -lt 3) {
-                    Write-Info "Tentativa $attempt falhou; o GitHub pode levar alguns segundos. Repetindo..."
+                $lastVerificationError = $_.Exception.Message
+                if ($attempt -lt 5) {
+                    Write-Info "Tentativa $attempt falhou; aguardando a propagação do GitHub..."
                     Start-Sleep -Seconds 5
                 }
             }
         }
         if (-not $ok) {
-            Write-Warn "Não foi possível baixar $url sem autenticação."
-            Write-Warn 'O auto-update depende disso: confira se a release está publicada (não rascunho) e se o repositório é público.'
+            throw "A verificação pública do auto-update falhou: $lastVerificationError`n$url"
         }
     }
 
