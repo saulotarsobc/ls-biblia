@@ -1,7 +1,7 @@
 # Bíblia LSB
 
 App Electron para baixar capítulos da Bíblia em Língua de Sinais Brasileira e
-montar um vídeo de estudo: escolher livro → capítulo → versículos → qualidade →
+montar um vídeo: escolher livro → capítulo → versículos → qualidade →
 editar (câmera lenta e zoom) → exportar.
 
 ```bash

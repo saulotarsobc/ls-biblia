@@ -404,7 +404,7 @@ class MainActivity : AppCompatActivity() {
                 if (chapter.verses.isEmpty()) {
                     "Este capítulo não possui marcadores e será usado por inteiro."
                 } else {
-                    "Marque os versículos que entrarão no estudo. Sem seleção, o capítulo inteiro será usado."
+                    "Marque os versículos. Sem seleção, o capítulo inteiro será usado."
                 },
                 14f,
                 MUTED,
@@ -750,7 +750,7 @@ class MainActivity : AppCompatActivity() {
             column().apply {
                 setPadding(dp(15), dp(13), dp(15), dp(13))
                 background = rounded(PANEL, LINE, 12)
-                addView(label("Trecho do estudo", 14f, TEXT, Typeface.BOLD))
+                addView(label("Trecho escolhido", 14f, TEXT, Typeface.BOLD))
                 addView(
                     label("$selectionLabel • ${formatDuration(previewDuration)}", 12f, MUTED),
                     matchWrap().apply { topMargin = dp(3) },
