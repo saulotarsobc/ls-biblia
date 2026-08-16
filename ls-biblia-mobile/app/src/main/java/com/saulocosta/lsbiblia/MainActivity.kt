@@ -29,6 +29,10 @@ class MainActivity : AppCompatActivity() {
     private val catalogClient = JwCatalogClient()
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private var currentBook: BookDetail? = null
+    private var currentChapter: Chapter? = null
+    private val selectedVerses = linkedSetOf<Int>()
+    private var selectedQuality: String? = null
+    private var currentStep = 0
     private lateinit var bookContent: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,11 +49,20 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("Handled explicitly until navigation is introduced")
     override fun onBackPressed() {
-        if (currentBook != null) showBookScreen() else super.onBackPressed()
+        when (currentStep) {
+            3 -> currentChapter?.let(::showVerseScreen) ?: showBookScreen()
+            2 -> currentBook?.let(::showChapterScreen) ?: showBookScreen()
+            1 -> showBookScreen()
+            else -> super.onBackPressed()
+        }
     }
 
     private fun showBookScreen() {
+        currentStep = 0
         currentBook = null
+        currentChapter = null
+        selectedVerses.clear()
+        selectedQuality = null
         setContentView(createBookScreen())
     }
 
@@ -129,7 +142,7 @@ class MainActivity : AppCompatActivity() {
         brandRow.addView(
             column().apply {
                 addView(label("LS Bíblia", 18f, TEXT, Typeface.BOLD))
-                addView(label("Estudo em língua de sinais", 12f, MUTED))
+                addView(label("Bíblia em língua de sinais", 12f, MUTED))
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(11)
@@ -153,6 +166,14 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(TEXT)
                     isClickable = true
                     setOnClickListener { showBookScreen() }
+                } else if (index == 1 && activeStep > 1 && currentBook != null) {
+                    setTextColor(TEXT)
+                    isClickable = true
+                    setOnClickListener { currentBook?.let(::showChapterScreen) }
+                } else if (index == 2 && activeStep > 2 && currentChapter != null) {
+                    setTextColor(TEXT)
+                    isClickable = true
+                    setOnClickListener { currentChapter?.let(::showVerseScreen) }
                 }
             }
             steps.addView(step, wrapWrap().apply { if (index > 0) leftMargin = dp(7) })
@@ -228,6 +249,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadBook(index: Int, force: Boolean = false) {
         val bookName = BOOK_NAMES[index]
+        currentStep = 1
         setContentView(createLoadingScreen(bookName))
         networkExecutor.execute {
             runCatching { catalogClient.getBook(this, index + 1, bookName, force) }
@@ -268,7 +290,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showChapterScreen(detail: BookDetail) {
+        currentStep = 1
         currentBook = detail
+        currentChapter = null
+        selectedVerses.clear()
+        selectedQuality = null
         val root = baseRoot().apply { addView(createHeader(activeStep = 1), matchWrap()) }
         val content = column().apply { setPadding(dp(18), dp(22), dp(18), dp(34)) }
         content.addView(label("PASSO 2 DE 5", 11f, ACCENT, Typeface.BOLD).apply { letterSpacing = 0.12f })
@@ -330,8 +356,222 @@ class MainActivity : AppCompatActivity() {
             wrapWrap().apply { topMargin = dp(4) },
         )
         setOnClickListener {
-            Toast.makeText(this@MainActivity, "Capítulo ${chapter.track} selecionado", Toast.LENGTH_SHORT).show()
+            currentChapter = chapter
+            selectedVerses.clear()
+            selectedQuality = null
+            showVerseScreen(chapter)
         }
+    }
+
+    private fun showVerseScreen(chapter: Chapter) {
+        val book = currentBook ?: return showBookScreen()
+        currentStep = 2
+        currentChapter = chapter
+
+        val root = baseRoot().apply { addView(createHeader(activeStep = 2), matchWrap()) }
+        val content = column().apply { setPadding(dp(18), dp(22), dp(18), dp(28)) }
+        content.addView(label("PASSO 3 DE 5", 11f, ACCENT, Typeface.BOLD).apply { letterSpacing = 0.12f })
+        content.addView(
+            label("${book.name} ${chapter.track}", 27f, TEXT, Typeface.BOLD),
+            matchWrap().apply { topMargin = dp(6) },
+        )
+        content.addView(
+            label(
+                if (chapter.verses.isEmpty()) {
+                    "Este capítulo não possui marcadores e será usado por inteiro."
+                } else {
+                    "Marque os versículos que entrarão no estudo. Sem seleção, o capítulo inteiro será usado."
+                },
+                14f,
+                MUTED,
+            ),
+            matchWrap().apply {
+                topMargin = dp(5)
+                bottomMargin = dp(18)
+            },
+        )
+
+        val back = action("‹  Capítulos").apply {
+            setOnClickListener { currentBook?.let(::showChapterScreen) }
+        }
+        val selectAll = action("Selecionar todos")
+        content.addView(
+            row().apply {
+                addView(back, wrapWrap())
+                if (chapter.verses.isNotEmpty()) {
+                    addView(selectAll, wrapWrap().apply { leftMargin = dp(9) })
+                }
+            },
+            matchWrap().apply { bottomMargin = dp(18) },
+        )
+
+        val selectionSummary = column().apply {
+            setPadding(dp(15), dp(13), dp(15), dp(13))
+            background = rounded(ACTIVE_PANEL, ACCENT, 12)
+        }
+        val selectionTitle = label("", 15f, TEXT, Typeface.BOLD)
+        val selectionDuration = label("", 12f, MUTED)
+        selectionSummary.addView(selectionTitle)
+        selectionSummary.addView(selectionDuration, matchWrap().apply { topMargin = dp(3) })
+        content.addView(selectionSummary, matchWrap().apply { bottomMargin = dp(20) })
+
+        val verseCards = linkedMapOf<Int, TextView>()
+        lateinit var updateSelection: () -> Unit
+        if (chapter.verses.isNotEmpty()) {
+            content.addView(
+                label("VERSÍCULOS", 11f, MUTED, Typeface.BOLD).apply { letterSpacing = 0.1f },
+                matchWrap().apply { bottomMargin = dp(10) },
+            )
+            val grid = GridLayout(this).apply {
+                columnCount = 5
+                alignmentMode = GridLayout.ALIGN_BOUNDS
+            }
+            chapter.verses.forEachIndexed { position, verse ->
+                val card = label(verse.number.toString(), 17f, TEXT, Typeface.BOLD).apply {
+                    gravity = Gravity.CENTER
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        if (!selectedVerses.add(verse.number)) selectedVerses.remove(verse.number)
+                        updateSelection()
+                    }
+                }
+                verseCards[verse.number] = card
+                grid.addView(card, verseGridParams(position))
+            }
+            content.addView(grid, matchWrap())
+        }
+
+        updateSelection = {
+            verseCards.forEach { (number, card) ->
+                val selected = number in selectedVerses
+                card.background = rounded(if (selected) ACTIVE_PANEL else PANEL, if (selected) ACCENT else LINE, 11)
+                card.setTextColor(if (selected) Color.WHITE else TEXT)
+            }
+            if (selectedVerses.isEmpty()) {
+                selectionTitle.text = "Capítulo inteiro"
+                selectionDuration.text = "Duração aproximada: ${formatDuration(chapter.duration)}"
+            } else {
+                selectionTitle.text = if (selectedVerses.size == 1) "1 versículo selecionado"
+                    else "${selectedVerses.size} versículos selecionados"
+                val duration = chapter.verses
+                    .filter { it.number in selectedVerses }
+                    .sumOf { (it.end - it.start).coerceAtLeast(0.0) }
+                selectionDuration.text = "Duração aproximada: ${formatDuration(duration)}"
+            }
+            selectAll.text = if (selectedVerses.size == chapter.verses.size) "Limpar seleção" else "Selecionar todos"
+        }
+        selectAll.setOnClickListener {
+            if (selectedVerses.size == chapter.verses.size) {
+                selectedVerses.clear()
+            } else {
+                selectedVerses.clear()
+                selectedVerses.addAll(chapter.verses.map { it.number })
+            }
+            updateSelection()
+        }
+        updateSelection()
+
+        root.addView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                addView(content, matchMatch())
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+        root.addView(
+            bottomAction("Continuar para qualidade") { showQualityScreen(chapter) },
+            matchWrap(),
+        )
+        setContentView(root)
+    }
+
+    private fun showQualityScreen(chapter: Chapter) {
+        val book = currentBook ?: return showBookScreen()
+        currentStep = 3
+        currentChapter = chapter
+        val orderedFiles = listOf("240p", "360p", "480p", "720p").mapNotNull(chapter.files::get)
+        if (selectedQuality !in chapter.files) {
+            selectedQuality = chapter.files["720p"]?.quality ?: orderedFiles.lastOrNull()?.quality
+        }
+
+        val root = baseRoot().apply { addView(createHeader(activeStep = 3), matchWrap()) }
+        val content = column().apply { setPadding(dp(18), dp(22), dp(18), dp(28)) }
+        content.addView(label("PASSO 4 DE 5", 11f, ACCENT, Typeface.BOLD).apply { letterSpacing = 0.12f })
+        content.addView(
+            label("Escolha a qualidade", 27f, TEXT, Typeface.BOLD),
+            matchWrap().apply { topMargin = dp(6) },
+        )
+        content.addView(
+            label("${book.name} ${chapter.track} • o capítulo é baixado uma única vez.", 14f, MUTED),
+            matchWrap().apply {
+                topMargin = dp(5)
+                bottomMargin = dp(18)
+            },
+        )
+        content.addView(
+            action("‹  Versículos").apply { setOnClickListener { showVerseScreen(chapter) } },
+            wrapWrap().apply { bottomMargin = dp(22) },
+        )
+
+        val qualityCards = linkedMapOf<String, LinearLayout>()
+        lateinit var updateQuality: () -> Unit
+        orderedFiles.forEach { file ->
+            val card = row().apply {
+                setPadding(dp(16), dp(15), dp(16), dp(15))
+                isClickable = true
+                isFocusable = true
+                addView(
+                    column().apply {
+                        addView(label(file.quality, 21f, TEXT, Typeface.BOLD))
+                        addView(
+                            label("${file.width} × ${file.height}  •  ${formatFileSize(file.fileSize)}", 12f, MUTED),
+                            matchWrap().apply { topMargin = dp(3) },
+                        )
+                    },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                )
+                addView(
+                    label("✓", 18f, Color.WHITE, Typeface.BOLD).apply {
+                        tag = "check"
+                        gravity = Gravity.CENTER
+                    },
+                    LinearLayout.LayoutParams(dp(34), dp(34)),
+                )
+                setOnClickListener {
+                    selectedQuality = file.quality
+                    updateQuality()
+                }
+            }
+            qualityCards[file.quality] = card
+            content.addView(card, matchWrap().apply { bottomMargin = dp(10) })
+        }
+
+        updateQuality = {
+            qualityCards.forEach { (quality, card) ->
+                val selected = quality == selectedQuality
+                card.background = rounded(if (selected) ACTIVE_PANEL else PANEL, if (selected) ACCENT else LINE, 12)
+                card.findViewWithTag<TextView>("check").apply {
+                    visibility = if (selected) View.VISIBLE else View.INVISIBLE
+                    background = rounded(ACCENT, ACCENT, 99)
+                }
+            }
+        }
+        updateQuality()
+        root.addView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                addView(content, matchMatch())
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+        root.addView(
+            bottomAction("Baixar e abrir o editor") {
+                Toast.makeText(this, "Download e editor entram no próximo marco.", Toast.LENGTH_LONG).show()
+            },
+            matchWrap(),
+        )
+        setContentView(root)
     }
 
     private fun showCatalogError(index: Int, message: String) {
@@ -391,6 +631,16 @@ class MainActivity : AppCompatActivity() {
             isFocusable = true
         }
 
+    private fun bottomAction(text: String, onClick: () -> Unit): View =
+        LinearLayout(this).apply {
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            setBackgroundColor(PANEL)
+            addView(
+                action(text, primary = true).apply { setOnClickListener { onClick() } },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)),
+            )
+        }
+
     private fun baseRoot(): LinearLayout = column().apply {
         setBackgroundColor(BG)
         ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
@@ -398,7 +648,15 @@ class MainActivity : AppCompatActivity() {
             view.setPadding(0, systemBars.top, 0, systemBars.bottom)
             insets
         }
-        ViewCompat.requestApplyInsets(this)
+        addOnAttachStateChangeListener(
+            object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) {
+                    ViewCompat.requestApplyInsets(view)
+                }
+
+                override fun onViewDetachedFromWindow(view: View) = Unit
+            },
+        )
     }
 
     private fun bookGridParams(position: Int): GridLayout.LayoutParams =
@@ -419,6 +677,16 @@ class MainActivity : AppCompatActivity() {
             val gap = dp(3)
             setMargins(if (position % 4 == 0) 0 else gap, if (position < 4) 0 else gap,
                 if (position % 4 == 3) 0 else gap, gap)
+        }
+
+    private fun verseGridParams(position: Int): GridLayout.LayoutParams =
+        GridLayout.LayoutParams(GridLayout.spec(position / 5), GridLayout.spec(position % 5, 1f)).apply {
+            width = 0
+            height = dp(62)
+            setGravity(Gravity.FILL)
+            val gap = dp(3)
+            setMargins(if (position % 5 == 0) 0 else gap, if (position < 5) 0 else gap,
+                if (position % 5 == 4) 0 else gap, gap)
         }
 
     private fun label(
@@ -466,6 +734,12 @@ class MainActivity : AppCompatActivity() {
     private fun formatDuration(seconds: Double): String {
         val rounded = seconds.toInt()
         return String.format(Locale.ROOT, "%d:%02d", rounded / 60, rounded % 60)
+    }
+
+    private fun formatFileSize(bytes: Long): String = when {
+        bytes >= 1024L * 1024 * 1024 -> String.format(Locale.ROOT, "%.1f GB", bytes / (1024.0 * 1024 * 1024))
+        bytes >= 1024L * 1024 -> String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024))
+        else -> String.format(Locale.ROOT, "%.0f KB", bytes / 1024.0)
     }
 
     private fun String.normalized(): String = Normalizer.normalize(this, Normalizer.Form.NFD)
