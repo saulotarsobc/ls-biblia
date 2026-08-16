@@ -1,35 +1,49 @@
 package com.saulocosta.lsbiblia
 
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.GridLayout
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.media3.common.Player
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import java.io.File
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.max
+import kotlin.math.min
 
+@UnstableApi
 class MainActivity : AppCompatActivity() {
     private val catalogClient = JwCatalogClient()
     private val networkExecutor = Executors.newSingleThreadExecutor()
@@ -42,25 +56,54 @@ class MainActivity : AppCompatActivity() {
     private var downloadToken = 0
     private var downloadError: String? = null
     private var player: ExoPlayer? = null
+    private var editorVideo: VideoFile? = null
+    private var editorVideoFile: File? = null
+    private var editorSelectionKey: String? = null
+    private var editState: EditState? = null
+    private var selectedSpeedRegionId: Long? = null
+    private var selectedZoomRegionId: Long? = null
+    private var zoomGestureEditing = false
+    private var activeExporter: VideoExporter? = null
+    private var exportToken = 0
+    private var showingCache = false
+    private var cacheReturnStep = 0
+    private val previewHandler = Handler(Looper.getMainLooper())
+    private val cacheManager by lazy { CacheManager(this) }
     private lateinit var bookContent: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = BG
         window.navigationBarColor = BG
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = handleBackNavigation()
+            },
+        )
         showBookScreen()
     }
 
     override fun onDestroy() {
         downloadToken++
         activeDownloader?.cancel()
+        exportToken++
+        activeExporter?.cancel()
+        activeExporter = null
         releasePlayer()
         networkExecutor.shutdownNow()
         super.onDestroy()
     }
 
-    @Deprecated("Handled explicitly until navigation is introduced")
-    override fun onBackPressed() {
+    private fun handleBackNavigation() {
+        if (showingCache) {
+            closeCacheScreen()
+            return
+        }
+        if (activeExporter != null) {
+            cancelExportAndReturn()
+            return
+        }
         if (activeDownloader != null) {
             cancelDownloadAndReturn()
             return
@@ -70,7 +113,7 @@ class MainActivity : AppCompatActivity() {
             3 -> currentChapter?.let(::showVerseScreen) ?: showBookScreen()
             2 -> currentBook?.let(::showChapterScreen) ?: showBookScreen()
             1 -> showBookScreen()
-            else -> super.onBackPressed()
+            else -> finish()
         }
     }
 
@@ -81,6 +124,10 @@ class MainActivity : AppCompatActivity() {
         currentChapter = null
         selectedVerses.clear()
         selectedQuality = null
+        editorVideo = null
+        editorVideoFile = null
+        editorSelectionKey = null
+        editState = null
         setContentView(createBookScreen())
     }
 
@@ -146,7 +193,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun createHeader(activeStep: Int): View {
         val header = column().apply {
-            setPadding(dp(18), dp(15), dp(18), dp(14))
+            setPadding(dp(14), dp(12), dp(14), dp(10))
             setBackgroundColor(PANEL)
         }
         val brandRow = row()
@@ -166,20 +213,29 @@ class MainActivity : AppCompatActivity() {
                 leftMargin = dp(11)
             },
         )
+        brandRow.addView(
+            action("Cache").apply {
+                textSize = 11f
+                setPadding(dp(11), dp(8), dp(11), dp(8))
+                setOnClickListener { if (!showingCache) showCacheScreen() }
+            },
+            wrapWrap(),
+        )
         header.addView(brandRow)
 
-        val steps = row().apply { setPadding(0, dp(15), dp(8), 0) }
+        val steps = row().apply { setPadding(0, dp(11), 0, 0) }
         listOf("Livro", "Capítulo", "Versículos", "Qualidade", "Editor").forEachIndexed { index, name ->
             val active = index == activeStep
             val step = label(
-                "${index + 1}  $name",
-                12f,
+                "${index + 1}\n$name",
+                10f,
                 if (active) Color.WHITE else MUTED,
                 if (active) Typeface.BOLD else Typeface.NORMAL,
             ).apply {
                 gravity = Gravity.CENTER
-                setPadding(dp(13), dp(8), dp(13), dp(8))
-                background = rounded(if (active) ACTIVE_PANEL else PANEL, if (active) ACCENT else LINE, 99)
+                maxLines = 2
+                setPadding(dp(1), dp(6), dp(1), dp(6))
+                background = rounded(if (active) ACTIVE_PANEL else PANEL, if (active) ACCENT else LINE, 10)
                 if (index == 0 && activeStep > 0) {
                     setTextColor(TEXT)
                     isClickable = true
@@ -198,16 +254,12 @@ class MainActivity : AppCompatActivity() {
                     setOnClickListener { currentChapter?.let(::showQualityScreen) }
                 }
             }
-            steps.addView(step, wrapWrap().apply { if (index > 0) leftMargin = dp(7) })
+            steps.addView(
+                step,
+                LinearLayout.LayoutParams(0, dp(48), 1f).apply { if (index > 0) leftMargin = dp(4) },
+            )
         }
-        header.addView(
-            HorizontalScrollView(this).apply {
-                isHorizontalScrollBarEnabled = false
-                overScrollMode = View.OVER_SCROLL_NEVER
-                addView(steps, wrapWrap())
-            },
-            matchWrap(),
-        )
+        header.addView(steps, matchWrap())
         return header
     }
 
@@ -683,19 +735,46 @@ class MainActivity : AppCompatActivity() {
         currentChapter?.let(::showQualityScreen) ?: showBookScreen()
     }
 
-    private fun showEditorScreen(book: BookDetail, chapter: Chapter, video: VideoFile, videoFile: File) {
+    private fun showEditorScreen(
+        book: BookDetail,
+        chapter: Chapter,
+        video: VideoFile,
+        videoFile: File,
+        resumeEditTime: Double = 0.0,
+        autoPlay: Boolean = false,
+    ) {
         releasePlayer()
         currentStep = 4
         currentBook = book
         currentChapter = chapter
 
+        val chosenVerses = chapter.verses.filter { it.number in selectedVerses }.sortedBy(Verse::number)
+        val selectionKey = if (chosenVerses.isEmpty()) "chapter" else chosenVerses.joinToString(",") { it.number.toString() }
+        val sourceChanged = editorVideoFile?.absolutePath != videoFile.absolutePath ||
+            editorSelectionKey != selectionKey || editState == null
+        editorVideo = video
+        editorVideoFile = videoFile
+        editorSelectionKey = selectionKey
+        if (sourceChanged) {
+            val ranges = if (chosenVerses.isEmpty()) {
+                listOf(SourceRange(0.0, chapter.duration))
+            } else {
+                TimelineMath.versesToRanges(chosenVerses)
+            }
+            editState = EditState(ranges)
+            selectedSpeedRegionId = null
+            selectedZoomRegionId = null
+            zoomGestureEditing = false
+        }
+        val edit = editState ?: return
+        val ranges = TimelineMath.normalizeRanges(edit.ranges)
+        val editDuration = TimelineMath.editDuration(ranges)
+        val outputDuration = TimelineMath.outputDuration(TimelineMath.buildAtoms(ranges, edit.speedRegions))
+
         val root = baseRoot().apply { addView(createHeader(activeStep = 4), matchWrap()) }
-        val content = column().apply { setPadding(dp(18), dp(18), dp(18), dp(28)) }
+        val content = column().apply { setPadding(dp(18), dp(17), dp(18), dp(26)) }
         content.addView(label("PASSO 5 DE 5", 11f, ACCENT, Typeface.BOLD).apply { letterSpacing = 0.12f })
-        content.addView(
-            label("Editor", 27f, TEXT, Typeface.BOLD),
-            matchWrap().apply { topMargin = dp(5) },
-        )
+        content.addView(label("Editor", 27f, TEXT, Typeface.BOLD), matchWrap().apply { topMargin = dp(5) })
         val selectedCount = selectedVerses.size
         val selectionLabel = when (selectedCount) {
             0 -> "capítulo inteiro"
@@ -706,7 +785,7 @@ class MainActivity : AppCompatActivity() {
             label("${book.name} ${chapter.track}  •  $selectionLabel  •  ${video.quality}", 13f, MUTED),
             matchWrap().apply {
                 topMargin = dp(3)
-                bottomMargin = dp(14)
+                bottomMargin = dp(12)
             },
         )
 
@@ -715,92 +794,789 @@ class MainActivity : AppCompatActivity() {
             useController = true
             controllerShowTimeoutMs = 3_000
             controllerAutoShow = true
+            clipChildren = true
         }
-        content.addView(
-            playerView,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(230)),
-        )
+        val previewFrame = FrameLayout(this).apply {
+            clipChildren = true
+            background = rounded(Color.BLACK, LINE, 11)
+            addView(
+                playerView,
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+            )
+        }
+        content.addView(previewFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(230)))
 
         val exoPlayer = ExoPlayer.Builder(this).build()
         player = exoPlayer
         playerView.player = exoPlayer
-        val chosenVerses = chapter.verses.filter { it.number in selectedVerses }.sortedBy { it.number }
-        val mediaItems = if (chosenVerses.isEmpty()) {
-            listOf(MediaItem.fromUri(Uri.fromFile(videoFile)))
-        } else {
-            chosenVerses.map { verse ->
-                MediaItem.Builder()
-                    .setMediaId("verse-${verse.number}")
-                    .setUri(Uri.fromFile(videoFile))
-                    .setClippingConfiguration(
-                        MediaItem.ClippingConfiguration.Builder()
-                            .setStartPositionMs((verse.start * 1_000).toLong())
-                            .setEndPositionMs((verse.end * 1_000).toLong())
-                            .build(),
-                    )
-                    .build()
-            }
+        val mediaItems = ranges.mapIndexed { index, range ->
+            MediaItem.Builder()
+                .setMediaId("range-$index")
+                .setUri(Uri.fromFile(videoFile))
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs((range.start * 1_000).toLong())
+                        .setEndPositionMs((range.end * 1_000).toLong())
+                        .build(),
+                )
+                .build()
         }
         exoPlayer.setMediaItems(mediaItems)
+        seekEditor(exoPlayer, ranges, resumeEditTime.coerceIn(0.0, editDuration))
         exoPlayer.prepare()
+        exoPlayer.playWhenReady = autoPlay
 
-        val previewDuration = if (chosenVerses.isEmpty()) chapter.duration
-            else chosenVerses.sumOf { (it.end - it.start).coerceAtLeast(0.0) }
+        val zoomModeButton = action(if (zoomGestureEditing) "Concluir enquadramento" else "Enquadrar zoom").apply {
+            textSize = 11f
+            visibility = if (edit.zoomRegions.any { it.id == selectedZoomRegionId }) View.VISIBLE else View.GONE
+        }
+        val zoomGestureHint = label("Use dois dedos para o zoom e arraste para enquadrar", 11f, Color.WHITE, Typeface.BOLD).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = rounded(Color.argb(205, 15, 17, 21), LINE, 8)
+            visibility = if (zoomGestureEditing) View.VISIBLE else View.GONE
+        }
+        previewFrame.addView(
+            zoomModeButton,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40), Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(8)
+                rightMargin = dp(8)
+            },
+        )
+        previewFrame.addView(
+            zoomGestureHint,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(8) },
+        )
+
+        fun selectedZoomRegion(): ZoomRegion? = edit.zoomRegions.firstOrNull { it.id == selectedZoomRegionId }
+        fun refreshZoomGestureUi() {
+            val region = selectedZoomRegion()
+            zoomModeButton.visibility = if (region == null) View.GONE else View.VISIBLE
+            zoomGestureHint.visibility = if (region != null && zoomGestureEditing) View.VISIBLE else View.GONE
+            zoomModeButton.text = if (zoomGestureEditing && region != null) {
+                "Concluir • ${String.format(Locale.ROOT, "%.1f", region.zoom)}×"
+            } else {
+                "Enquadrar zoom"
+            }
+            if (zoomGestureEditing) playerView.hideController()
+        }
+        zoomModeButton.setOnClickListener {
+            val region = selectedZoomRegion() ?: return@setOnClickListener
+            if (zoomGestureEditing) {
+                zoomGestureEditing = false
+                redrawEditor(editorPosition(exoPlayer, ranges))
+            } else {
+                zoomGestureEditing = true
+                seekEditor(exoPlayer, ranges, (region.start + region.end) / 2.0)
+                refreshZoomGestureUi()
+            }
+        }
+
+        val scaleDetector = ScaleGestureDetector(
+            this,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    val region = selectedZoomRegion() ?: return false
+                    region.zoom = (region.zoom * detector.scaleFactor).coerceIn(1.05f, 3f)
+                    val clamped = TimelineMath.clampCenter(ZoomValue(region.zoom, region.centerX, region.centerY))
+                    region.centerX = clamped.centerX
+                    region.centerY = clamped.centerY
+                    applyPreviewZoom(
+                        playerView,
+                        TimelineMath.zoomAt(editorPosition(exoPlayer, ranges), edit.zoomRegions),
+                    )
+                    refreshZoomGestureUi()
+                    return true
+                }
+            },
+        )
+        var lastDragX = 0f
+        var lastDragY = 0f
+        playerView.setOnTouchListener { view, event ->
+            if (!zoomGestureEditing || selectedZoomRegion() == null) return@setOnTouchListener false
+            view.parent?.requestDisallowInterceptTouchEvent(true)
+            scaleDetector.onTouchEvent(event)
+            val region = selectedZoomRegion() ?: return@setOnTouchListener true
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastDragX = event.x
+                    lastDragY = event.y
+                }
+                MotionEvent.ACTION_MOVE -> if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
+                    val deltaX = event.x - lastDragX
+                    val deltaY = event.y - lastDragY
+                    lastDragX = event.x
+                    lastDragY = event.y
+                    val next = TimelineMath.clampCenter(
+                        ZoomValue(
+                            region.zoom,
+                            region.centerX - deltaX / (view.width.coerceAtLeast(1) * region.zoom),
+                            region.centerY - deltaY / (view.height.coerceAtLeast(1) * region.zoom),
+                        ),
+                    )
+                    region.centerX = next.centerX
+                    region.centerY = next.centerY
+                    applyPreviewZoom(
+                        playerView,
+                        TimelineMath.zoomAt(editorPosition(exoPlayer, ranges), edit.zoomRegions),
+                    )
+                }
+                MotionEvent.ACTION_UP -> view.performClick()
+            }
+            true
+        }
+        refreshZoomGestureUi()
+
+        val timeLabel = label("", 13f, TEXT, Typeface.BOLD).apply { gravity = Gravity.CENTER }
+        content.addView(timeLabel, matchWrap().apply {
+            topMargin = dp(11)
+            bottomMargin = dp(5)
+        })
+
+        val timeline = EditorTimelineView(this).apply {
+            durationSeconds = editDuration
+            speedRegions = edit.speedRegions.toList()
+            zoomRegions = edit.zoomRegions.toList()
+            var accumulated = 0.0
+            cutPositions = ranges.dropLast(1).map { range ->
+                accumulated += range.end - range.start
+                accumulated
+            }
+            onSeek = { seekEditor(exoPlayer, ranges, it) }
+            contentDescription = "Linha do tempo do vídeo"
+        }
+        content.addView(timeline, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(112)))
+
         content.addView(
             column().apply {
-                setPadding(dp(15), dp(13), dp(15), dp(13))
-                background = rounded(PANEL, LINE, 12)
-                addView(label("Trecho escolhido", 14f, TEXT, Typeface.BOLD))
+                setPadding(dp(14), dp(11), dp(14), dp(11))
+                background = rounded(PANEL, LINE, 11)
+                addView(label("Resultado", 13f, TEXT, Typeface.BOLD))
                 addView(
-                    label("$selectionLabel • ${formatDuration(previewDuration)}", 12f, MUTED),
+                    label(
+                        "${formatDurationPrecise(outputDuration)}  •  ${edit.speedRegions.size} câmera lenta  •  ${edit.zoomRegions.size} zoom",
+                        12f,
+                        MUTED,
+                    ),
                     matchWrap().apply { topMargin = dp(3) },
                 )
             },
             matchWrap().apply {
-                topMargin = dp(14)
+                topMargin = dp(9)
                 bottomMargin = dp(16)
             },
         )
 
-        content.addView(label("VELOCIDADE DA PRÉVIA", 11f, MUTED, Typeface.BOLD).apply { letterSpacing = 0.1f })
-        val speedButtons = linkedMapOf<Float, TextView>()
-        val speedRow = row()
-        lateinit var updateSpeed: (Float) -> Unit
-        listOf(0.5f, 0.75f, 1f).forEachIndexed { index, speed ->
-            val button = action(if (speed == 1f) "Normal" else "${speed}×").apply {
-                setOnClickListener { updateSpeed(speed) }
-            }
-            speedButtons[speed] = button
-            speedRow.addView(
-                button,
-                LinearLayout.LayoutParams(0, dp(46), 1f).apply { if (index > 0) leftMargin = dp(8) },
-            )
-        }
-        updateSpeed = { speed ->
-            exoPlayer.playbackParameters = PlaybackParameters(speed)
-            speedButtons.forEach { (value, button) ->
-                val selected = value == speed
-                button.background = rounded(if (selected) ACTIVE_PANEL else PANEL_2, if (selected) ACCENT else LINE, 10)
-                button.setTextColor(if (selected) Color.WHITE else TEXT)
-            }
-        }
-        updateSpeed(1f)
-        content.addView(speedRow, matchWrap().apply {
-            topMargin = dp(10)
-            bottomMargin = dp(16)
+        content.addView(label("1. ESCOLHA O TRECHO", 11f, MUTED, Typeface.BOLD).apply { letterSpacing = 0.1f })
+        val markLabel = label("Posicione a linha azul e toque em “Marcar início”.", 12f, MUTED)
+        val markStart = action("Marcar início")
+        val clearMark = action("Limpar marca")
+        content.addView(
+            row().apply {
+                addView(markStart, LinearLayout.LayoutParams(0, dp(44), 1f))
+                addView(clearMark, LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(8) })
+            },
+            matchWrap().apply { topMargin = dp(9) },
+        )
+        content.addView(markLabel, matchWrap().apply {
+            topMargin = dp(7)
+            bottomMargin = dp(9)
         })
 
+        fun updateMarkLabel(currentTime: Double = editorPosition(exoPlayer, ranges)) {
+            val start = edit.selectionStart
+            val nextText = if (start == null) {
+                "Posicione a linha azul e toque em “Marcar início”."
+            } else {
+                "Início ${formatDurationPrecise(start)} → fim ${formatDurationPrecise(currentTime)}. Agora escolha o efeito."
+            }
+            if (markLabel.text.toString() != nextText) markLabel.text = nextText
+        }
+        markStart.setOnClickListener {
+            edit.selectionStart = editorPosition(exoPlayer, ranges)
+            updateMarkLabel()
+        }
+        clearMark.setOnClickListener {
+            edit.selectionStart = null
+            updateMarkLabel()
+        }
+
+        val addSlow = action("+ Câmera lenta", primary = true)
+        val addZoom = action("+ Zoom", primary = true)
         content.addView(
-            label(
-                "A prévia já respeita os versículos selecionados. No próximo marco entram câmera lenta e zoom por trechos, linha do tempo e exportação.",
-                13f,
-                MUTED,
-            ).apply {
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                background = rounded(PANEL, LINE, 10)
+            row().apply {
+                addView(addSlow, LinearLayout.LayoutParams(0, dp(48), 1f))
+                addView(addZoom, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(8) })
+            },
+            matchWrap().apply { bottomMargin = dp(18) },
+        )
+        addSlow.setOnClickListener {
+            val current = editorPosition(exoPlayer, ranges)
+            val interval = selectedInterval(edit, current) ?: return@setOnClickListener
+            if (edit.speedRegions.any { overlaps(interval.first, interval.second, it.start, it.end) }) {
+                Toast.makeText(this, "Já existe câmera lenta nesse trecho.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val region = SpeedRegion(System.nanoTime(), interval.first, interval.second)
+            edit.speedRegions += region
+            edit.selectionStart = null
+            selectedSpeedRegionId = region.id
+            redrawEditor(current, exoPlayer.isPlaying)
+        }
+        addZoom.setOnClickListener {
+            val current = editorPosition(exoPlayer, ranges)
+            val interval = selectedInterval(edit, current) ?: return@setOnClickListener
+            if (edit.zoomRegions.any { overlaps(interval.first, interval.second, it.start, it.end) }) {
+                Toast.makeText(this, "Já existe zoom nesse trecho.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val region = ZoomRegion(System.nanoTime(), interval.first, interval.second)
+            edit.zoomRegions += region
+            edit.selectionStart = null
+            selectedZoomRegionId = region.id
+            zoomGestureEditing = true
+            redrawEditor((region.start + region.end) / 2.0, autoPlay = false)
+        }
+
+        if (edit.speedRegions.isNotEmpty()) {
+            content.addView(label("CÂMERA LENTA", 11f, SLOW, Typeface.BOLD), matchWrap().apply { bottomMargin = dp(8) })
+            edit.speedRegions.toList().forEach { region -> addSpeedRegionCard(content, region) }
+        }
+        if (edit.zoomRegions.isNotEmpty()) {
+            content.addView(
+                label("ZOOM  •  toque no vídeo para definir o foco", 11f, ZOOM, Typeface.BOLD),
+                matchWrap().apply {
+                    topMargin = dp(7)
+                    bottomMargin = dp(8)
+                },
+            )
+            edit.zoomRegions.toList().forEach { region -> addZoomRegionCard(content, region) }
+        }
+
+        val updater = object : Runnable {
+            override fun run() {
+                if (player !== exoPlayer) return
+                val current = editorPosition(exoPlayer, ranges).coerceIn(0.0, editDuration)
+                timeline.positionSeconds = current
+                val nextTimeText = "${formatDurationPrecise(current)}  /  ${formatDurationPrecise(editDuration)}"
+                if (timeLabel.text.toString() != nextTimeText) timeLabel.text = nextTimeText
+                updateMarkLabel(current)
+                val speed = TimelineMath.speedAt(current, edit.speedRegions)
+                if (exoPlayer.playbackParameters.speed != speed) {
+                    exoPlayer.playbackParameters = PlaybackParameters(speed)
+                }
+                applyPreviewZoom(playerView, TimelineMath.zoomAt(current, edit.zoomRegions))
+                if (exoPlayer.isPlaying) previewHandler.postDelayed(this, 50)
+            }
+        }
+        exoPlayer.addListener(
+            object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    previewHandler.removeCallbacks(updater)
+                    previewHandler.post(updater)
+                }
+            },
+        )
+        previewHandler.post(updater)
+
+        content.addView(
+            action("‹  Voltar à qualidade").apply {
+                setOnClickListener { showQualityScreen(chapter) }
+            },
+            wrapWrap().apply { topMargin = dp(8) },
+        )
+        root.addView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                addView(content, matchMatch())
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+        root.addView(
+            bottomAction("Exportar vídeo") { startExport(book, chapter, video, videoFile, edit) },
+            matchWrap(),
+        )
+        setContentView(root)
+    }
+
+    private fun selectedInterval(edit: EditState, current: Double): Pair<Double, Double>? {
+        val marked = edit.selectionStart
+        if (marked == null) {
+            Toast.makeText(this, "Marque o início do trecho primeiro.", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        val start = min(marked, current)
+        val end = max(marked, current)
+        if (end - start < 0.25) {
+            Toast.makeText(this, "Escolha um trecho com pelo menos 0,25 segundo.", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        return start to end
+    }
+
+    private fun overlaps(start: Double, end: Double, otherStart: Double, otherEnd: Double): Boolean =
+        start < otherEnd - 0.0001 && end > otherStart + 0.0001
+
+    private fun addSpeedRegionCard(parent: LinearLayout, region: SpeedRegion) {
+        val edit = editState ?: return
+        val card = column().apply {
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+            background = rounded(SLOW_PANEL, if (selectedSpeedRegionId == region.id) SLOW else LINE, 11)
+            isClickable = true
+            setOnClickListener {
+                selectedSpeedRegionId = region.id
+                redrawEditor(editorPosition())
+            }
+        }
+        card.addView(
+            row().apply {
+                addView(
+                    label("${region.speed}×  •  ${formatDurationPrecise(region.start)} → ${formatDurationPrecise(region.end)}", 13f, TEXT, Typeface.BOLD),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                )
+                addView(action("Apagar").apply {
+                    textSize = 11f
+                    setOnClickListener {
+                        edit.speedRegions.removeAll { it.id == region.id }
+                        selectedSpeedRegionId = null
+                        redrawEditor(editorPosition())
+                    }
+                }, wrapWrap())
             },
             matchWrap(),
         )
+        val speedRow = row()
+        listOf(0.25f, 0.5f, 0.75f).forEachIndexed { index, speed ->
+            speedRow.addView(
+                action("${speed}×").apply {
+                    if (region.speed == speed) {
+                        background = rounded(ACTIVE_PANEL, SLOW, 9)
+                        setTextColor(Color.WHITE)
+                    }
+                    setOnClickListener {
+                        region.speed = speed
+                        selectedSpeedRegionId = region.id
+                        redrawEditor(editorPosition())
+                    }
+                },
+                LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (index > 0) leftMargin = dp(6) },
+            )
+        }
+        card.addView(speedRow, matchWrap().apply { topMargin = dp(9) })
+        card.addView(regionBoundaryRow(region.id, speed = true), matchWrap().apply { topMargin = dp(7) })
+        parent.addView(card, matchWrap().apply { bottomMargin = dp(9) })
+    }
+
+    private fun addZoomRegionCard(parent: LinearLayout, region: ZoomRegion) {
+        val edit = editState ?: return
+        val card = column().apply {
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+            background = rounded(ZOOM_PANEL, if (selectedZoomRegionId == region.id) ZOOM else LINE, 11)
+            isClickable = true
+            setOnClickListener {
+                selectedZoomRegionId = region.id
+                zoomGestureEditing = true
+                redrawEditor((region.start + region.end) / 2.0, autoPlay = false)
+            }
+        }
+        card.addView(
+            row().apply {
+                addView(
+                    label("${String.format(Locale.ROOT, "%.1f", region.zoom)}×  •  ${formatDurationPrecise(region.start)} → ${formatDurationPrecise(region.end)}", 13f, TEXT, Typeface.BOLD),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                )
+                addView(action("Apagar").apply {
+                    textSize = 11f
+                    setOnClickListener {
+                        edit.zoomRegions.removeAll { it.id == region.id }
+                        selectedZoomRegionId = null
+                        zoomGestureEditing = false
+                        redrawEditor(editorPosition())
+                    }
+                }, wrapWrap())
+            },
+            matchWrap(),
+        )
+        val zoomRow = row()
+        listOf(1.5f, 1.8f, 2.2f).forEachIndexed { index, zoom ->
+            zoomRow.addView(
+                action("${zoom}×").apply {
+                    if (region.zoom == zoom) {
+                        background = rounded(ACTIVE_PANEL, ZOOM, 9)
+                        setTextColor(Color.WHITE)
+                    }
+                    setOnClickListener {
+                        region.zoom = zoom
+                        selectedZoomRegionId = region.id
+                        zoomGestureEditing = true
+                        redrawEditor((region.start + region.end) / 2.0, autoPlay = false)
+                    }
+                },
+                LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (index > 0) leftMargin = dp(6) },
+            )
+        }
+        card.addView(zoomRow, matchWrap().apply { topMargin = dp(9) })
+        card.addView(
+            label("Foco: ${(region.centerX * 100).toInt()}% × ${(region.centerY * 100).toInt()}%", 11f, MUTED),
+            matchWrap().apply { topMargin = dp(7) },
+        )
+        card.addView(regionBoundaryRow(region.id, speed = false), matchWrap().apply { topMargin = dp(7) })
+        parent.addView(card, matchWrap().apply { bottomMargin = dp(9) })
+    }
+
+    private fun regionBoundaryRow(regionId: Long, speed: Boolean): View = row().apply {
+        addView(
+            action("Início aqui").apply {
+                textSize = 11f
+                setOnClickListener { updateRegionBoundary(regionId, speed, startBoundary = true) }
+            },
+            LinearLayout.LayoutParams(0, dp(39), 1f),
+        )
+        addView(
+            action("Fim aqui").apply {
+                textSize = 11f
+                setOnClickListener { updateRegionBoundary(regionId, speed, startBoundary = false) }
+            },
+            LinearLayout.LayoutParams(0, dp(39), 1f).apply { leftMargin = dp(7) },
+        )
+    }
+
+    private fun updateRegionBoundary(regionId: Long, speed: Boolean, startBoundary: Boolean) {
+        val edit = editState ?: return
+        val current = editorPosition()
+        val start: Double
+        val end: Double
+        if (speed) {
+            val region = edit.speedRegions.firstOrNull { it.id == regionId } ?: return
+            start = if (startBoundary) current else region.start
+            end = if (startBoundary) region.end else current
+            if (!validRegionUpdate(start, end, edit.speedRegions.filterNot { it.id == regionId }.map { it.start to it.end })) return
+            region.start = start
+            region.end = end
+            selectedSpeedRegionId = regionId
+        } else {
+            val region = edit.zoomRegions.firstOrNull { it.id == regionId } ?: return
+            start = if (startBoundary) current else region.start
+            end = if (startBoundary) region.end else current
+            if (!validRegionUpdate(start, end, edit.zoomRegions.filterNot { it.id == regionId }.map { it.start to it.end })) return
+            region.start = start
+            region.end = end
+            selectedZoomRegionId = regionId
+        }
+        redrawEditor(current)
+    }
+
+    private fun validRegionUpdate(start: Double, end: Double, others: List<Pair<Double, Double>>): Boolean {
+        if (end - start < 0.25) {
+            Toast.makeText(this, "O início precisa ficar antes do fim.", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (others.any { overlaps(start, end, it.first, it.second) }) {
+            Toast.makeText(this, "Esse ajuste sobrepõe outra região.", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        return true
+    }
+
+    private fun redrawEditor(position: Double, autoPlay: Boolean = player?.isPlaying == true) {
+        val book = currentBook ?: return
+        val chapter = currentChapter ?: return
+        val video = editorVideo ?: return
+        val file = editorVideoFile?.takeIf(File::isFile) ?: return showQualityScreen(chapter)
+        showEditorScreen(book, chapter, video, file, position, autoPlay)
+    }
+
+    private fun editorPosition(
+        exoPlayer: ExoPlayer? = player,
+        ranges: List<SourceRange> = editState?.ranges.orEmpty(),
+    ): Double {
+        if (exoPlayer == null || ranges.isEmpty()) return 0.0
+        val normalized = TimelineMath.normalizeRanges(ranges)
+        val index = exoPlayer.currentMediaItemIndex.coerceIn(0, normalized.lastIndex)
+        val before = normalized.take(index).sumOf { it.end - it.start }
+        return before + (exoPlayer.currentPosition.coerceAtLeast(0L) / 1_000.0)
+    }
+
+    private fun seekEditor(exoPlayer: ExoPlayer, ranges: List<SourceRange>, editTime: Double) {
+        val normalized = TimelineMath.normalizeRanges(ranges)
+        if (normalized.isEmpty()) return
+        var remaining = editTime.coerceAtLeast(0.0)
+        normalized.forEachIndexed { index, range ->
+            val duration = range.end - range.start
+            if (remaining < duration || index == normalized.lastIndex) {
+                exoPlayer.seekTo(index, (remaining.coerceIn(0.0, duration) * 1_000).toLong())
+                return
+            }
+            remaining -= duration
+        }
+    }
+
+    private fun applyPreviewZoom(playerView: PlayerView, value: ZoomValue) {
+        val surface = playerView.videoSurfaceView ?: return
+        if (surface.width <= 0 || surface.height <= 0) return
+        surface.pivotX = 0f
+        surface.pivotY = 0f
+        surface.scaleX = value.zoom
+        surface.scaleY = value.zoom
+        surface.translationX = (0.5f - value.centerX * value.zoom) * surface.width
+        surface.translationY = (0.5f - value.centerY * value.zoom) * surface.height
+    }
+
+    private fun startExport(
+        book: BookDetail,
+        chapter: Chapter,
+        video: VideoFile,
+        videoFile: File,
+        edit: EditState,
+    ) {
+        releasePlayer()
+        val token = ++exportToken
+        val root = baseRoot().apply { addView(createHeader(activeStep = 4), matchWrap()) }
+        val center = column().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(28), dp(28), dp(28), dp(28))
+        }
+        val expected = TimelineMath.outputDuration(TimelineMath.buildAtoms(edit.ranges, edit.speedRegions))
+        val title = label("Exportando ${book.name} ${chapter.track}", 22f, TEXT, Typeface.BOLD).apply {
+            gravity = Gravity.CENTER
+        }
+        val detail = label("Vídeo final • ${formatDurationPrecise(expected)}", 14f, MUTED).apply {
+            gravity = Gravity.CENTER
+        }
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progressTintList = ColorStateList.valueOf(ACCENT)
+            progressBackgroundTintList = ColorStateList.valueOf(LINE)
+        }
+        val progressText = label("Preparando…", 13f, MUTED).apply { gravity = Gravity.CENTER }
+        center.addView(title, matchWrap())
+        center.addView(detail, matchWrap().apply {
+            topMargin = dp(7)
+            bottomMargin = dp(24)
+        })
+        center.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10)))
+        center.addView(progressText, matchWrap().apply {
+            topMargin = dp(12)
+            bottomMargin = dp(22)
+        })
+        center.addView(action("Cancelar exportação").apply { setOnClickListener { cancelExportAndReturn() } }, wrapWrap())
+        root.addView(center, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+
+        val exporter = VideoExporter(applicationContext)
+        activeExporter = exporter
+        val safeBook = book.name.replace(Regex("[^A-Za-zÀ-ÿ0-9 -]"), "").trim()
+        val outputName = "LS Bíblia - $safeBook ${chapter.track} - ${video.quality}"
+        runCatching {
+            exporter.start(
+                videoFile,
+                edit,
+                outputName,
+                object : VideoExporter.Listener {
+                    override fun onProgress(percent: Int) {
+                        if (exportToken != token) return
+                        progress.progress = percent
+                        progressText.text = "Processando • $percent%"
+                    }
+
+                    override fun onCompleted(result: VideoExporter.Result) {
+                        if (exportToken != token) return
+                        activeExporter = null
+                        showExportComplete(book, chapter, video, videoFile, result)
+                    }
+
+                    override fun onError(message: String) {
+                        if (exportToken != token) return
+                        activeExporter = null
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                        showEditorScreen(book, chapter, video, videoFile)
+                    }
+
+                    override fun onCancelled() = Unit
+                },
+            )
+        }.onFailure { error ->
+            activeExporter = null
+            Toast.makeText(this, error.message ?: "Não foi possível iniciar a exportação.", Toast.LENGTH_LONG).show()
+            showEditorScreen(book, chapter, video, videoFile)
+        }
+    }
+
+    private fun cancelExportAndReturn() {
+        exportToken++
+        val exporter = activeExporter
+        activeExporter = null
+        exporter?.cancel()
+        redrawEditor(0.0)
+    }
+
+    private fun showExportComplete(
+        book: BookDetail,
+        chapter: Chapter,
+        video: VideoFile,
+        videoFile: File,
+        result: VideoExporter.Result,
+    ) {
+        val root = baseRoot().apply { addView(createHeader(activeStep = 4), matchWrap()) }
+        val center = column().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(28), dp(24), dp(28))
+        }
+        center.addView(
+            label("✓", 28f, Color.WHITE, Typeface.BOLD).apply {
+                gravity = Gravity.CENTER
+                background = rounded(ZOOM, ZOOM, 99)
+            },
+            LinearLayout.LayoutParams(dp(58), dp(58)),
+        )
+        center.addView(
+            label("Vídeo exportado", 24f, TEXT, Typeface.BOLD).apply { gravity = Gravity.CENTER },
+            wrapWrap().apply { topMargin = dp(18) },
+        )
+        center.addView(
+            label("Salvo em Filmes/LS Bíblia\n${result.displayName} • ${formatFileSize(result.bytes)}", 13f, MUTED).apply {
+                gravity = Gravity.CENTER
+            },
+            wrapWrap().apply {
+                topMargin = dp(8)
+                bottomMargin = dp(22)
+            },
+        )
+        center.addView(
+            action("Assistir", primary = true).apply {
+                setOnClickListener {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(result.uri, "video/mp4")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    runCatching { startActivity(intent) }.onFailure {
+                        Toast.makeText(this@MainActivity, "Nenhum player disponível.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)),
+        )
+        center.addView(
+            action("Compartilhar").apply {
+                setOnClickListener {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "video/mp4"
+                        putExtra(Intent.EXTRA_STREAM, result.uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(intent, "Compartilhar vídeo"))
+                }
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(9) },
+        )
+        center.addView(
+            action("Voltar ao editor").apply {
+                setOnClickListener { showEditorScreen(book, chapter, video, videoFile) }
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(9) },
+        )
+        center.addView(
+            action("Criar outro vídeo").apply { setOnClickListener { showBookScreen() } },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(9) },
+        )
+        root.addView(center, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+    }
+
+
+    private fun releasePlayer() {
+        previewHandler.removeCallbacksAndMessages(null)
+        player?.release()
+        player = null
+    }
+
+    private fun showCacheScreen() {
+        if (!showingCache) cacheReturnStep = currentStep
+        showingCache = true
+        releasePlayer()
+
+        val root = baseRoot().apply { addView(createHeader(activeStep = cacheReturnStep), matchWrap()) }
+        val loading = column().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(28), dp(28), dp(28), dp(28))
+            addView(
+                ProgressBar(this@MainActivity).apply {
+                    indeterminateTintList = ColorStateList.valueOf(ACCENT)
+                },
+                LinearLayout.LayoutParams(dp(42), dp(42)),
+            )
+            addView(
+                label("Lendo o cache…", 15f, MUTED).apply { gravity = Gravity.CENTER },
+                wrapWrap().apply { topMargin = dp(15) },
+            )
+        }
+        root.addView(loading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+
+        networkExecutor.execute {
+            val result = runCatching(cacheManager::report)
+            runOnUiThread {
+                if (!showingCache) return@runOnUiThread
+                result.onSuccess(::renderCacheReport).onFailure {
+                    Toast.makeText(this, "Não foi possível ler o cache.", Toast.LENGTH_LONG).show()
+                    closeCacheScreen()
+                }
+            }
+        }
+    }
+
+    private fun renderCacheReport(report: CacheReport) {
+        if (!showingCache) return
+        val root = baseRoot().apply { addView(createHeader(activeStep = cacheReturnStep), matchWrap()) }
+        val content = column().apply { setPadding(dp(18), dp(20), dp(18), dp(32)) }
+        content.addView(label("ARMAZENAMENTO", 11f, ACCENT, Typeface.BOLD).apply { letterSpacing = 0.12f })
+        content.addView(label("Gerenciar cache", 27f, TEXT, Typeface.BOLD), matchWrap().apply { topMargin = dp(6) })
+        content.addView(
+            label(
+                "Catálogos expiram em 7 dias. Os vídeos ficam disponíveis até você apagá-los.",
+                14f,
+                MUTED,
+            ),
+            matchWrap().apply {
+                topMargin = dp(5)
+                bottomMargin = dp(17)
+            },
+        )
+        content.addView(
+            column().apply {
+                setPadding(dp(15), dp(13), dp(15), dp(13))
+                background = rounded(PANEL, LINE, 12)
+                addView(label("${formatFileSize(report.totalBytes)} usados", 18f, TEXT, Typeface.BOLD))
+                addView(
+                    label(
+                        "Vídeos: ${formatFileSize(report.videoBytes)}  •  Catálogos: ${formatFileSize(report.catalogBytes)}",
+                        12f,
+                        MUTED,
+                    ),
+                    matchWrap().apply { topMargin = dp(4) },
+                )
+            },
+            matchWrap().apply { bottomMargin = dp(13) },
+        )
+
+        content.addView(
+            row().apply {
+                addView(action("‹  Voltar").apply { setOnClickListener { closeCacheScreen() } }, wrapWrap())
+                addView(
+                    action("Limpar tudo").apply {
+                        setTextColor(DANGER)
+                        setOnClickListener { confirmCacheClear(CacheKind.ALL, "todo o cache") }
+                    },
+                    wrapWrap().apply { leftMargin = dp(8) },
+                )
+            },
+            matchWrap().apply { bottomMargin = dp(22) },
+        )
+
+        addCacheSection(content, "VÍDEOS", report.videos, report.videoBytes, CacheKind.VIDEOS)
+        addCacheSection(content, "CATÁLOGOS", report.catalogs, report.catalogBytes, CacheKind.CATALOGS)
+
         root.addView(
             ScrollView(this).apply {
                 isFillViewport = true
@@ -811,9 +1587,134 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun releasePlayer() {
-        player?.release()
-        player = null
+    private fun addCacheSection(
+        parent: LinearLayout,
+        title: String,
+        entries: List<CacheEntry>,
+        bytes: Long,
+        kind: CacheKind,
+    ) {
+        val heading = row().apply {
+            addView(
+                label("$title  •  ${formatFileSize(bytes)}", 11f, MUTED, Typeface.BOLD).apply {
+                    letterSpacing = 0.08f
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            if (entries.isNotEmpty()) {
+                addView(
+                    action("Apagar seção").apply {
+                        textSize = 11f
+                        setOnClickListener {
+                            confirmCacheClear(kind, if (kind == CacheKind.VIDEOS) "todos os vídeos" else "todos os catálogos")
+                        }
+                    },
+                    wrapWrap(),
+                )
+            }
+        }
+        parent.addView(heading, matchWrap().apply {
+            topMargin = dp(8)
+            bottomMargin = dp(9)
+        })
+        if (entries.isEmpty()) {
+            parent.addView(
+                label("Nada armazenado nesta seção.", 13f, MUTED).apply {
+                    setPadding(dp(14), dp(15), dp(14), dp(15))
+                    background = rounded(PANEL, LINE, 10)
+                },
+                matchWrap().apply { bottomMargin = dp(18) },
+            )
+            return
+        }
+        entries.forEach { entry ->
+            parent.addView(
+                row().apply {
+                    setPadding(dp(14), dp(12), dp(10), dp(12))
+                    background = rounded(PANEL, if (entry.stale || entry.partial) DANGER else LINE, 10)
+                    addView(
+                        column().apply {
+                            addView(label(entry.title, 14f, TEXT, Typeface.BOLD))
+                            addView(
+                                label("${entry.detail}  •  ${formatFileSize(entry.bytes)}", 11f,
+                                    if (entry.stale || entry.partial) DANGER else MUTED),
+                                matchWrap().apply { topMargin = dp(3) },
+                            )
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                    )
+                    addView(
+                        action("Apagar").apply {
+                            textSize = 11f
+                            setOnClickListener { confirmCacheEntryRemoval(entry) }
+                        },
+                        wrapWrap().apply { leftMargin = dp(8) },
+                    )
+                },
+                matchWrap().apply { bottomMargin = dp(8) },
+            )
+        }
+        parent.addView(View(this), LinearLayout.LayoutParams(1, dp(10)))
+    }
+
+    private fun confirmCacheClear(kind: CacheKind, description: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Apagar $description?")
+            .setMessage("Este conteúdo pode ser baixado novamente quando necessário.")
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Apagar") { _, _ -> runCacheRemoval { cacheManager.clear(kind) } }
+            .show()
+    }
+
+    private fun confirmCacheEntryRemoval(entry: CacheEntry) {
+        AlertDialog.Builder(this)
+            .setTitle("Apagar ${entry.title}?")
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Apagar") { _, _ -> runCacheRemoval { cacheManager.remove(entry) } }
+            .show()
+    }
+
+    private fun runCacheRemoval(remove: () -> CacheRemoval) {
+        networkExecutor.execute {
+            val result = runCatching(remove)
+            runOnUiThread {
+                if (!showingCache) return@runOnUiThread
+                result.onSuccess { removal ->
+                    val activeFile = editorVideoFile
+                    if (activeFile != null && !activeFile.exists()) editorVideoFile = null
+                    val message = if (removal.errors.isEmpty()) {
+                        "${removal.removed} item(ns) apagado(s) • ${formatFileSize(removal.freedBytes)} liberados"
+                    } else {
+                        removal.errors.first()
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    showCacheScreen()
+                }.onFailure {
+                    Toast.makeText(this, "Não foi possível limpar o cache.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun closeCacheScreen() {
+        showingCache = false
+        when (cacheReturnStep) {
+            4 -> {
+                val book = currentBook
+                val chapter = currentChapter
+                val video = editorVideo
+                val file = editorVideoFile
+                if (book != null && chapter != null && video != null && file?.isFile == true) {
+                    showEditorScreen(book, chapter, video, file)
+                } else {
+                    currentChapter?.let(::showQualityScreen) ?: showBookScreen()
+                }
+            }
+            3 -> currentChapter?.let(::showQualityScreen) ?: showBookScreen()
+            2 -> currentChapter?.let(::showVerseScreen) ?: showBookScreen()
+            1 -> currentBook?.let(::showChapterScreen) ?: showBookScreen()
+            else -> showBookScreen()
+        }
     }
 
     private fun showCatalogError(index: Int, message: String) {
@@ -978,6 +1879,11 @@ class MainActivity : AppCompatActivity() {
         return String.format(Locale.ROOT, "%d:%02d", rounded / 60, rounded % 60)
     }
 
+    private fun formatDurationPrecise(seconds: Double): String {
+        val safe = seconds.coerceAtLeast(0.0)
+        return String.format(Locale.ROOT, "%d:%04.1f", (safe / 60).toInt(), safe % 60)
+    }
+
     private fun formatFileSize(bytes: Long): String = when {
         bytes >= 1024L * 1024 * 1024 -> String.format(Locale.ROOT, "%.1f GB", bytes / (1024.0 * 1024 * 1024))
         bytes >= 1024L * 1024 -> String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024))
@@ -997,11 +1903,15 @@ class MainActivity : AppCompatActivity() {
         private val PANEL_2 = Color.rgb(30, 34, 43)
         private val ACTIVE_PANEL = Color.rgb(32, 50, 80)
         private val DANGER_PANEL = Color.rgb(58, 30, 36)
+        private val SLOW_PANEL = Color.rgb(55, 42, 29)
+        private val ZOOM_PANEL = Color.rgb(23, 54, 49)
         private val LINE = Color.rgb(42, 47, 58)
         private val TEXT = Color.rgb(230, 233, 239)
         private val MUTED = Color.rgb(147, 155, 171)
         private val ACCENT = Color.rgb(79, 140, 255)
         private val DANGER = Color.rgb(239, 95, 107)
+        private val SLOW = Color.rgb(240, 161, 58)
+        private val ZOOM = Color.rgb(35, 200, 160)
 
         private val BOOK_NAMES = listOf(
             "Gênesis", "Êxodo", "Levítico", "Números", "Deuteronômio", "Josué", "Juízes", "Rute",
