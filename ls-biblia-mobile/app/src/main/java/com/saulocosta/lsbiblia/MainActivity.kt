@@ -4,6 +4,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -17,10 +18,14 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import java.io.File
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -33,6 +38,10 @@ class MainActivity : AppCompatActivity() {
     private val selectedVerses = linkedSetOf<Int>()
     private var selectedQuality: String? = null
     private var currentStep = 0
+    private var activeDownloader: VideoDownloader? = null
+    private var downloadToken = 0
+    private var downloadError: String? = null
+    private var player: ExoPlayer? = null
     private lateinit var bookContent: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,13 +52,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        downloadToken++
+        activeDownloader?.cancel()
+        releasePlayer()
         networkExecutor.shutdownNow()
         super.onDestroy()
     }
 
     @Deprecated("Handled explicitly until navigation is introduced")
     override fun onBackPressed() {
+        if (activeDownloader != null) {
+            cancelDownloadAndReturn()
+            return
+        }
         when (currentStep) {
+            4 -> currentChapter?.let(::showQualityScreen) ?: showBookScreen()
             3 -> currentChapter?.let(::showVerseScreen) ?: showBookScreen()
             2 -> currentBook?.let(::showChapterScreen) ?: showBookScreen()
             1 -> showBookScreen()
@@ -58,6 +75,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showBookScreen() {
+        releasePlayer()
         currentStep = 0
         currentBook = null
         currentChapter = null
@@ -174,6 +192,10 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(TEXT)
                     isClickable = true
                     setOnClickListener { currentChapter?.let(::showVerseScreen) }
+                } else if (index == 3 && activeStep > 3 && currentChapter != null) {
+                    setTextColor(TEXT)
+                    isClickable = true
+                    setOnClickListener { currentChapter?.let(::showQualityScreen) }
                 }
             }
             steps.addView(step, wrapWrap().apply { if (index > 0) leftMargin = dp(7) })
@@ -290,6 +312,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showChapterScreen(detail: BookDetail) {
+        releasePlayer()
         currentStep = 1
         currentBook = detail
         currentChapter = null
@@ -364,6 +387,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showVerseScreen(chapter: Chapter) {
+        releasePlayer()
         val book = currentBook ?: return showBookScreen()
         currentStep = 2
         currentChapter = chapter
@@ -487,6 +511,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showQualityScreen(chapter: Chapter) {
+        releasePlayer()
         val book = currentBook ?: return showBookScreen()
         currentStep = 3
         currentChapter = chapter
@@ -547,6 +572,19 @@ class MainActivity : AppCompatActivity() {
             content.addView(card, matchWrap().apply { bottomMargin = dp(10) })
         }
 
+        downloadError?.let { message ->
+            content.addView(
+                label(message, 13f, DANGER).apply {
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                    background = rounded(DANGER_PANEL, DANGER, 10)
+                },
+                matchWrap().apply {
+                    topMargin = dp(4)
+                    bottomMargin = dp(10)
+                },
+            )
+        }
+
         updateQuality = {
             qualityCards.forEach { (quality, card) ->
                 val selected = quality == selectedQuality
@@ -566,12 +604,216 @@ class MainActivity : AppCompatActivity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
         )
         root.addView(
-            bottomAction("Baixar e abrir o editor") {
-                Toast.makeText(this, "Download e editor entram no próximo marco.", Toast.LENGTH_LONG).show()
-            },
+            bottomAction("Baixar e abrir o editor") { startDownload(book, chapter) },
             matchWrap(),
         )
         setContentView(root)
+    }
+
+    private fun startDownload(book: BookDetail, chapter: Chapter) {
+        val video = selectedQuality?.let(chapter.files::get) ?: return
+        downloadError = null
+        val token = ++downloadToken
+        val downloader = VideoDownloader()
+        activeDownloader = downloader
+
+        val root = baseRoot().apply { addView(createHeader(activeStep = 3), matchWrap()) }
+        val center = column().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(28), dp(28), dp(28), dp(28))
+        }
+        val title = label("Baixando ${book.name} ${chapter.track}", 22f, TEXT, Typeface.BOLD).apply {
+            gravity = Gravity.CENTER
+        }
+        val detail = label("Qualidade ${video.quality}", 14f, MUTED).apply { gravity = Gravity.CENTER }
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            progressTintList = ColorStateList.valueOf(ACCENT)
+            progressBackgroundTintList = ColorStateList.valueOf(LINE)
+        }
+        val progressText = label("Preparando…", 13f, MUTED).apply { gravity = Gravity.CENTER }
+        val cancel = action("Cancelar download").apply { setOnClickListener { cancelDownloadAndReturn() } }
+
+        center.addView(title, matchWrap())
+        center.addView(detail, matchWrap().apply {
+            topMargin = dp(7)
+            bottomMargin = dp(24)
+        })
+        center.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10)))
+        center.addView(progressText, matchWrap().apply {
+            topMargin = dp(12)
+            bottomMargin = dp(22)
+        })
+        center.addView(cancel, wrapWrap())
+        root.addView(center, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+
+        networkExecutor.execute {
+            try {
+                val target = downloader.download(this, book.bookNumber, chapter, video) { state ->
+                    runOnUiThread {
+                        if (downloadToken != token) return@runOnUiThread
+                        progress.progress = state.percent
+                        progressText.text = "${formatFileSize(state.receivedBytes)} de ${formatFileSize(state.totalBytes)}  •  ${state.percent}%"
+                    }
+                }
+                runOnUiThread {
+                    if (downloadToken != token) return@runOnUiThread
+                    activeDownloader = null
+                    showEditorScreen(book, chapter, video, target)
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (downloadToken != token) return@runOnUiThread
+                    activeDownloader = null
+                    if (error !is VideoDownloader.DownloadCancelledException) {
+                        downloadError = error.message ?: "O download não pôde ser concluído."
+                        showQualityScreen(chapter)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelDownloadAndReturn() {
+        downloadToken++
+        activeDownloader?.cancel()
+        activeDownloader = null
+        currentChapter?.let(::showQualityScreen) ?: showBookScreen()
+    }
+
+    private fun showEditorScreen(book: BookDetail, chapter: Chapter, video: VideoFile, videoFile: File) {
+        releasePlayer()
+        currentStep = 4
+        currentBook = book
+        currentChapter = chapter
+
+        val root = baseRoot().apply { addView(createHeader(activeStep = 4), matchWrap()) }
+        val content = column().apply { setPadding(dp(18), dp(18), dp(18), dp(28)) }
+        content.addView(label("PASSO 5 DE 5", 11f, ACCENT, Typeface.BOLD).apply { letterSpacing = 0.12f })
+        content.addView(
+            label("Editor", 27f, TEXT, Typeface.BOLD),
+            matchWrap().apply { topMargin = dp(5) },
+        )
+        val selectedCount = selectedVerses.size
+        val selectionLabel = when (selectedCount) {
+            0 -> "capítulo inteiro"
+            1 -> "1 versículo"
+            else -> "$selectedCount versículos"
+        }
+        content.addView(
+            label("${book.name} ${chapter.track}  •  $selectionLabel  •  ${video.quality}", 13f, MUTED),
+            matchWrap().apply {
+                topMargin = dp(3)
+                bottomMargin = dp(14)
+            },
+        )
+
+        val playerView = PlayerView(this).apply {
+            setBackgroundColor(Color.BLACK)
+            useController = true
+            controllerShowTimeoutMs = 3_000
+            controllerAutoShow = true
+        }
+        content.addView(
+            playerView,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(230)),
+        )
+
+        val exoPlayer = ExoPlayer.Builder(this).build()
+        player = exoPlayer
+        playerView.player = exoPlayer
+        val chosenVerses = chapter.verses.filter { it.number in selectedVerses }.sortedBy { it.number }
+        val mediaItems = if (chosenVerses.isEmpty()) {
+            listOf(MediaItem.fromUri(Uri.fromFile(videoFile)))
+        } else {
+            chosenVerses.map { verse ->
+                MediaItem.Builder()
+                    .setMediaId("verse-${verse.number}")
+                    .setUri(Uri.fromFile(videoFile))
+                    .setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs((verse.start * 1_000).toLong())
+                            .setEndPositionMs((verse.end * 1_000).toLong())
+                            .build(),
+                    )
+                    .build()
+            }
+        }
+        exoPlayer.setMediaItems(mediaItems)
+        exoPlayer.prepare()
+
+        val previewDuration = if (chosenVerses.isEmpty()) chapter.duration
+            else chosenVerses.sumOf { (it.end - it.start).coerceAtLeast(0.0) }
+        content.addView(
+            column().apply {
+                setPadding(dp(15), dp(13), dp(15), dp(13))
+                background = rounded(PANEL, LINE, 12)
+                addView(label("Trecho do estudo", 14f, TEXT, Typeface.BOLD))
+                addView(
+                    label("$selectionLabel • ${formatDuration(previewDuration)}", 12f, MUTED),
+                    matchWrap().apply { topMargin = dp(3) },
+                )
+            },
+            matchWrap().apply {
+                topMargin = dp(14)
+                bottomMargin = dp(16)
+            },
+        )
+
+        content.addView(label("VELOCIDADE DA PRÉVIA", 11f, MUTED, Typeface.BOLD).apply { letterSpacing = 0.1f })
+        val speedButtons = linkedMapOf<Float, TextView>()
+        val speedRow = row()
+        lateinit var updateSpeed: (Float) -> Unit
+        listOf(0.5f, 0.75f, 1f).forEachIndexed { index, speed ->
+            val button = action(if (speed == 1f) "Normal" else "${speed}×").apply {
+                setOnClickListener { updateSpeed(speed) }
+            }
+            speedButtons[speed] = button
+            speedRow.addView(
+                button,
+                LinearLayout.LayoutParams(0, dp(46), 1f).apply { if (index > 0) leftMargin = dp(8) },
+            )
+        }
+        updateSpeed = { speed ->
+            exoPlayer.playbackParameters = PlaybackParameters(speed)
+            speedButtons.forEach { (value, button) ->
+                val selected = value == speed
+                button.background = rounded(if (selected) ACTIVE_PANEL else PANEL_2, if (selected) ACCENT else LINE, 10)
+                button.setTextColor(if (selected) Color.WHITE else TEXT)
+            }
+        }
+        updateSpeed(1f)
+        content.addView(speedRow, matchWrap().apply {
+            topMargin = dp(10)
+            bottomMargin = dp(16)
+        })
+
+        content.addView(
+            label(
+                "A prévia já respeita os versículos selecionados. No próximo marco entram câmera lenta e zoom por trechos, linha do tempo e exportação.",
+                13f,
+                MUTED,
+            ).apply {
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = rounded(PANEL, LINE, 10)
+            },
+            matchWrap(),
+        )
+        root.addView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                addView(content, matchMatch())
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+        setContentView(root)
+    }
+
+    private fun releasePlayer() {
+        player?.release()
+        player = null
     }
 
     private fun showCatalogError(index: Int, message: String) {
