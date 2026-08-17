@@ -137,6 +137,31 @@ object TimelineMath {
     fun outputDuration(atoms: List<EditAtom>): Double =
         atoms.sumOf { (it.sourceEnd - it.sourceStart) / it.speed }
 
+    /**
+     * Maps the continuous exported-video clock back to the editor clock.
+     *
+     * Speed regions stretch or compress the output duration of an atom, but zoom
+     * regions are authored against the editor clock. Keeping this conversion in
+     * one place prevents visual effects from restarting at atom boundaries.
+     */
+    fun outputToEdit(time: Double, atoms: List<EditAtom>): Double {
+        if (atoms.isEmpty()) return max(0.0, time)
+
+        val outputTime = max(0.0, time)
+        var outputStart = 0.0
+        atoms.forEach { atom ->
+            val editDuration = atom.sourceEnd - atom.sourceStart
+            val outputEnd = outputStart + editDuration / atom.speed
+            if (outputTime < outputEnd) {
+                return atom.editStart + (outputTime - outputStart) * atom.speed
+            }
+            outputStart = outputEnd
+        }
+
+        val last = atoms.last()
+        return last.editStart + last.sourceEnd - last.sourceStart
+    }
+
     fun zoomAt(time: Double, regions: List<ZoomRegion>): ZoomValue {
         var zoom = 1f
         var centerX = 0.5f

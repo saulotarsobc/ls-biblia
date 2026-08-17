@@ -41,6 +41,54 @@ class TimelineMathTest {
     }
 
     @Test
+    fun outputClockMapsBackToEditorClockAcrossSpeedBoundaries() {
+        val atoms = TimelineMath.buildAtoms(
+            listOf(SourceRange(10.0, 22.0)),
+            listOf(SpeedRegion(1, 4.0, 8.0, 0.5f)),
+        )
+
+        assertEquals(3.0, TimelineMath.outputToEdit(3.0, atoms), 0.0001)
+        assertEquals(4.0, TimelineMath.outputToEdit(4.0, atoms), 0.0001)
+        assertEquals(6.0, TimelineMath.outputToEdit(8.0, atoms), 0.0001)
+        assertEquals(8.0, TimelineMath.outputToEdit(12.0, atoms), 0.0001)
+        assertEquals(10.0, TimelineMath.outputToEdit(14.0, atoms), 0.0001)
+        assertEquals(12.0, TimelineMath.outputToEdit(30.0, atoms), 0.0001)
+    }
+
+    @Test
+    fun zoomStaysContinuousWhenItCrossesSpeedAtoms() {
+        val atoms = TimelineMath.buildAtoms(
+            listOf(SourceRange(0.0, 12.0)),
+            listOf(SpeedRegion(1, 4.0, 8.0, 0.5f)),
+        )
+        val zoom = listOf(
+            ZoomRegion(1, start = 3.0, end = 9.0, zoom = 2f, ramp = 1.0),
+        )
+
+        val beforeSlowBoundary = TimelineMath.zoomAt(
+            TimelineMath.outputToEdit(3.999, atoms),
+            zoom,
+        ).zoom
+        val afterSlowBoundary = TimelineMath.zoomAt(
+            TimelineMath.outputToEdit(4.001, atoms),
+            zoom,
+        ).zoom
+        val beforeNormalBoundary = TimelineMath.zoomAt(
+            TimelineMath.outputToEdit(11.999, atoms),
+            zoom,
+        ).zoom
+        val afterNormalBoundary = TimelineMath.zoomAt(
+            TimelineMath.outputToEdit(12.001, atoms),
+            zoom,
+        ).zoom
+
+        assertEquals(beforeSlowBoundary, afterSlowBoundary, 0.01f)
+        assertEquals(beforeNormalBoundary, afterNormalBoundary, 0.01f)
+        assertEquals(1f, TimelineMath.zoomAt(TimelineMath.outputToEdit(3.0, atoms), zoom).zoom, 0.0001f)
+        assertEquals(1f, TimelineMath.zoomAt(TimelineMath.outputToEdit(13.0, atoms), zoom).zoom, 0.0001f)
+    }
+
+    @Test
     fun zoomRampsInAndClampsTheFrameCenter() {
         val region = ZoomRegion(
             id = 1,

@@ -71,11 +71,20 @@ class VideoExporter(private val context: Context) {
         if (temp.exists()) temp.delete()
         temporaryFile = temp
 
-        val items = atoms.map { atom -> createEditedItem(sourceFile, atom, edit.zoomRegions) }
+        val items = atoms.map { atom -> createEditedItem(sourceFile, atom) }
         val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
             .addItems(items)
             .build()
-        val composition = Composition.Builder(sequence).build()
+        val compositionBuilder = Composition.Builder(sequence)
+        if (edit.zoomRegions.isNotEmpty()) {
+            val effect = MatrixTransformation { presentationTimeUs ->
+                val outputTime = presentationTimeUs / 1_000_000.0
+                val editTime = TimelineMath.outputToEdit(outputTime, atoms)
+                zoomMatrix(TimelineMath.zoomAt(editTime, edit.zoomRegions))
+            }
+            compositionBuilder.setEffects(Effects(emptyList(), listOf(effect)))
+        }
+        val composition = compositionBuilder.build()
         val activeTransformer = Transformer.Builder(context)
             .setVideoMimeType(MimeTypes.VIDEO_H264)
             .addListener(
@@ -119,7 +128,6 @@ class VideoExporter(private val context: Context) {
     private fun createEditedItem(
         sourceFile: File,
         atom: EditAtom,
-        zoomRegions: List<ZoomRegion>,
     ): EditedMediaItem {
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.fromFile(sourceFile))
@@ -130,20 +138,10 @@ class VideoExporter(private val context: Context) {
                     .build(),
             )
             .build()
-        val builder = EditedMediaItem.Builder(mediaItem)
+        return EditedMediaItem.Builder(mediaItem)
             .setRemoveAudio(true)
             .setSpeed(ConstantSpeedProvider(atom.speed))
-
-        if (zoomRegions.isNotEmpty()) {
-            val effect = MatrixTransformation { presentationTimeUs ->
-                // setSpeed acontece antes dos efeitos. Reconstruímos aqui o tempo
-                // de edição anterior à câmera lenta para manter preview e arquivo iguais.
-                val localEditTime = presentationTimeUs / 1_000_000.0 * atom.speed
-                zoomMatrix(TimelineMath.zoomAt(atom.editStart + localEditTime, zoomRegions))
-            }
-            builder.setEffects(Effects(emptyList(), listOf(effect)))
-        }
-        return builder.build()
+            .build()
     }
 
     private fun zoomMatrix(value: ZoomValue): Matrix {
