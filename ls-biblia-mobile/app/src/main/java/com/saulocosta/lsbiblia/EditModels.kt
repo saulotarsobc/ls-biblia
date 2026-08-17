@@ -19,7 +19,7 @@ data class ZoomRegion(
     var zoom: Float = 1.8f,
     var centerX: Float = 0.5f,
     var centerY: Float = 0.45f,
-    var ramp: Double = 0.4,
+    var ramp: Double = 0.65,
 )
 
 data class EditState(

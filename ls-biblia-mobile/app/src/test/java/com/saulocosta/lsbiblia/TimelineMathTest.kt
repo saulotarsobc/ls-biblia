@@ -2,6 +2,7 @@ package com.saulocosta.lsbiblia
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimelineMathTest {
@@ -105,5 +106,44 @@ class TimelineMathTest {
         assertEquals(2f, middle.zoom, 0.0001f)
         assertEquals(0.25f, middle.centerX, 0.0001f)
         assertEquals(0.75f, middle.centerY, 0.0001f)
+    }
+
+    @Test
+    fun constantFrameRateSamplerFillsSlowMotionTimestampGaps() {
+        val sampler = FrameTimestampSampler(frameRate = 30)
+
+        assertEquals(listOf(0L), sampler.outputTimesFor(0).toList())
+        assertEquals(
+            listOf(33_333L, 66_667L),
+            sampler.outputTimesFor(66_733).toList(),
+        )
+        assertEquals(
+            listOf(100_000L, 133_333L),
+            sampler.outputTimesFor(133_466).toList(),
+        )
+    }
+
+    @Test
+    fun constantFrameRateSamplerKeepsNormalThirtyFpsCadence() {
+        val sampler = FrameTimestampSampler(frameRate = 30)
+
+        val output = listOf(0L, 33_367L, 66_733L, 100_100L)
+            .flatMap { sampler.outputTimesFor(it).toList() }
+
+        assertEquals(listOf(0L, 33_333L, 66_667L, 100_000L), output)
+    }
+
+    @Test
+    fun defaultZoomRampAdvancesInSmallStepsAtThirtyFps() {
+        val region = ZoomRegion(id = 1, start = 1.0, end = 4.0)
+        val frameStep = 1.0 / 30.0
+        val samples = generateSequence(region.start) { it + frameStep }
+            .takeWhile { it <= region.start + region.ramp }
+            .map { TimelineMath.zoomAt(it, listOf(region)).zoom }
+            .toList()
+        val largestStep = samples.zipWithNext().maxOf { (before, after) -> after - before }
+
+        assertEquals(0.65, region.ramp, 0.0001)
+        assertTrue("A rampa ainda tem saltos visíveis entre quadros.", largestStep < 0.065f)
     }
 }

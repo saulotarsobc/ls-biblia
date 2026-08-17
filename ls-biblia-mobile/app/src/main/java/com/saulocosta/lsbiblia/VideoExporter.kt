@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import androidx.media3.common.C
+import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.audio.SpeedProvider
@@ -76,13 +77,20 @@ class VideoExporter(private val context: Context) {
             .addItems(items)
             .build()
         val compositionBuilder = Composition.Builder(sequence)
+        val compositionEffects = mutableListOf<Effect>()
+        if (atoms.any { it.speed < 1f }) {
+            compositionEffects += ConstantFrameRateEffect(frameRate = 30)
+        }
         if (edit.zoomRegions.isNotEmpty()) {
             val effect = MatrixTransformation { presentationTimeUs ->
                 val outputTime = presentationTimeUs / 1_000_000.0
                 val editTime = TimelineMath.outputToEdit(outputTime, atoms)
                 zoomMatrix(TimelineMath.zoomAt(editTime, edit.zoomRegions))
             }
-            compositionBuilder.setEffects(Effects(emptyList(), listOf(effect)))
+            compositionEffects += effect
+        }
+        if (compositionEffects.isNotEmpty()) {
+            compositionBuilder.setEffects(Effects(emptyList(), compositionEffects))
         }
         val composition = compositionBuilder.build()
         val activeTransformer = Transformer.Builder(context)
