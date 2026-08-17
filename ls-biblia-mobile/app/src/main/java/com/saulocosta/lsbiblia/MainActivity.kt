@@ -39,8 +39,6 @@ import java.io.File
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.Executors
-import kotlin.math.max
-import kotlin.math.min
 
 @UnstableApi
 class MainActivity : AppCompatActivity() {
@@ -948,19 +946,91 @@ class MainActivity : AppCompatActivity() {
             bottomMargin = dp(5)
         })
 
+        content.addView(
+            label(
+                "Arraste numa pista vazia para criar. Arraste o meio da faixa para mover ou as bordas brancas para ajustar.",
+                12f,
+                MUTED,
+            ),
+            matchWrap().apply { bottomMargin = dp(5) },
+        )
+
         val timeline = EditorTimelineView(this).apply {
             durationSeconds = editDuration
             speedRegions = edit.speedRegions.toList()
             zoomRegions = edit.zoomRegions.toList()
+            selectedSpeedRegionId = this@MainActivity.selectedSpeedRegionId
+            selectedZoomRegionId = this@MainActivity.selectedZoomRegionId
             var accumulated = 0.0
             cutPositions = ranges.dropLast(1).map { range ->
                 accumulated += range.end - range.start
                 accumulated
             }
             onSeek = { seekEditor(exoPlayer, ranges, it) }
+            onSelectRegion = { lane, id ->
+                if (lane == EditorTimelineView.Lane.SPEED) {
+                    this@MainActivity.selectedSpeedRegionId = id
+                    this@MainActivity.selectedZoomRegionId = null
+                    zoomGestureEditing = false
+                } else {
+                    this@MainActivity.selectedZoomRegionId = id
+                    this@MainActivity.selectedSpeedRegionId = null
+                    zoomGestureEditing = false
+                }
+                refreshZoomGestureUi()
+            }
+            onCreateRegion = createRegion@{ lane, start, end ->
+                val others = if (lane == EditorTimelineView.Lane.SPEED) {
+                    edit.speedRegions.map { it.start to it.end }
+                } else {
+                    edit.zoomRegions.map { it.start to it.end }
+                }
+                if (!canPlaceRegion(start, end, others)) {
+                    Toast.makeText(this@MainActivity, "Essa faixa sobrepõe outra região.", Toast.LENGTH_SHORT).show()
+                    return@createRegion
+                }
+                if (lane == EditorTimelineView.Lane.SPEED) {
+                    val region = SpeedRegion(System.nanoTime(), start, end)
+                    edit.speedRegions += region
+                    edit.speedRegions.sortBy(SpeedRegion::start)
+                    this@MainActivity.selectedSpeedRegionId = region.id
+                    this@MainActivity.selectedZoomRegionId = null
+                    zoomGestureEditing = false
+                    redrawEditor((start + end) / 2.0, autoPlay = false)
+                } else {
+                    val region = ZoomRegion(System.nanoTime(), start, end)
+                    edit.zoomRegions += region
+                    edit.zoomRegions.sortBy(ZoomRegion::start)
+                    this@MainActivity.selectedZoomRegionId = region.id
+                    this@MainActivity.selectedSpeedRegionId = null
+                    zoomGestureEditing = true
+                    redrawEditor((start + end) / 2.0, autoPlay = false)
+                }
+            }
+            onUpdateRegion = updateRegion@{ lane, id, start, end ->
+                if (lane == EditorTimelineView.Lane.SPEED) {
+                    val region = edit.speedRegions.firstOrNull { it.id == id } ?: return@updateRegion false
+                    val others = edit.speedRegions.filterNot { it.id == id }.map { it.start to it.end }
+                    if (!canPlaceRegion(start, end, others)) return@updateRegion false
+                    region.start = start
+                    region.end = end
+                    edit.speedRegions.sortBy(SpeedRegion::start)
+                } else {
+                    val region = edit.zoomRegions.firstOrNull { it.id == id } ?: return@updateRegion false
+                    val others = edit.zoomRegions.filterNot { it.id == id }.map { it.start to it.end }
+                    if (!canPlaceRegion(start, end, others)) return@updateRegion false
+                    region.start = start
+                    region.end = end
+                    edit.zoomRegions.sortBy(ZoomRegion::start)
+                }
+                true
+            }
+            onInteractionFinished = {
+                redrawEditor(editorPosition(exoPlayer, ranges), autoPlay = false)
+            }
             contentDescription = "Linha do tempo do vídeo"
         }
-        content.addView(timeline, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(112)))
+        content.addView(timeline, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(126)))
 
         content.addView(
             column().apply {
@@ -978,80 +1048,9 @@ class MainActivity : AppCompatActivity() {
             },
             matchWrap().apply {
                 topMargin = dp(9)
-                bottomMargin = dp(16)
+                bottomMargin = dp(14)
             },
         )
-
-        content.addView(label("1. ESCOLHA O TRECHO", 11f, MUTED, Typeface.BOLD).apply { letterSpacing = 0.1f })
-        val markLabel = label("Posicione a linha azul e toque em “Marcar início”.", 12f, MUTED)
-        val markStart = action("Marcar início")
-        val clearMark = action("Limpar marca")
-        content.addView(
-            row().apply {
-                addView(markStart, LinearLayout.LayoutParams(0, dp(44), 1f))
-                addView(clearMark, LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(8) })
-            },
-            matchWrap().apply { topMargin = dp(9) },
-        )
-        content.addView(markLabel, matchWrap().apply {
-            topMargin = dp(7)
-            bottomMargin = dp(9)
-        })
-
-        fun updateMarkLabel(currentTime: Double = editorPosition(exoPlayer, ranges)) {
-            val start = edit.selectionStart
-            val nextText = if (start == null) {
-                "Posicione a linha azul e toque em “Marcar início”."
-            } else {
-                "Início ${formatDurationPrecise(start)} → fim ${formatDurationPrecise(currentTime)}. Agora escolha o efeito."
-            }
-            if (markLabel.text.toString() != nextText) markLabel.text = nextText
-        }
-        markStart.setOnClickListener {
-            edit.selectionStart = editorPosition(exoPlayer, ranges)
-            updateMarkLabel()
-        }
-        clearMark.setOnClickListener {
-            edit.selectionStart = null
-            updateMarkLabel()
-        }
-
-        val addSlow = action("+ Câmera lenta", primary = true)
-        val addZoom = action("+ Zoom", primary = true)
-        content.addView(
-            row().apply {
-                addView(addSlow, LinearLayout.LayoutParams(0, dp(48), 1f))
-                addView(addZoom, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(8) })
-            },
-            matchWrap().apply { bottomMargin = dp(18) },
-        )
-        addSlow.setOnClickListener {
-            val current = editorPosition(exoPlayer, ranges)
-            val interval = selectedInterval(edit, current) ?: return@setOnClickListener
-            if (edit.speedRegions.any { overlaps(interval.first, interval.second, it.start, it.end) }) {
-                Toast.makeText(this, "Já existe câmera lenta nesse trecho.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val region = SpeedRegion(System.nanoTime(), interval.first, interval.second)
-            edit.speedRegions += region
-            edit.selectionStart = null
-            selectedSpeedRegionId = region.id
-            redrawEditor(current, exoPlayer.isPlaying)
-        }
-        addZoom.setOnClickListener {
-            val current = editorPosition(exoPlayer, ranges)
-            val interval = selectedInterval(edit, current) ?: return@setOnClickListener
-            if (edit.zoomRegions.any { overlaps(interval.first, interval.second, it.start, it.end) }) {
-                Toast.makeText(this, "Já existe zoom nesse trecho.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val region = ZoomRegion(System.nanoTime(), interval.first, interval.second)
-            edit.zoomRegions += region
-            edit.selectionStart = null
-            selectedZoomRegionId = region.id
-            zoomGestureEditing = true
-            redrawEditor((region.start + region.end) / 2.0, autoPlay = false)
-        }
 
         if (edit.speedRegions.isNotEmpty()) {
             content.addView(label("CÂMERA LENTA", 11f, SLOW, Typeface.BOLD), matchWrap().apply { bottomMargin = dp(8) })
@@ -1075,7 +1074,6 @@ class MainActivity : AppCompatActivity() {
                 timeline.positionSeconds = current
                 val nextTimeText = "${formatDurationPrecise(current)}  /  ${formatDurationPrecise(editDuration)}"
                 if (timeLabel.text.toString() != nextTimeText) timeLabel.text = nextTimeText
-                updateMarkLabel(current)
                 val speed = TimelineMath.speedAt(current, edit.speedRegions)
                 if (exoPlayer.playbackParameters.speed != speed) {
                     exoPlayer.playbackParameters = PlaybackParameters(speed)
@@ -1117,23 +1115,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun selectedInterval(edit: EditState, current: Double): Pair<Double, Double>? {
-        val marked = edit.selectionStart
-        if (marked == null) {
-            Toast.makeText(this, "Marque o início do trecho primeiro.", Toast.LENGTH_SHORT).show()
-            return null
-        }
-        val start = min(marked, current)
-        val end = max(marked, current)
-        if (end - start < 0.25) {
-            Toast.makeText(this, "Escolha um trecho com pelo menos 0,25 segundo.", Toast.LENGTH_SHORT).show()
-            return null
-        }
-        return start to end
-    }
-
     private fun overlaps(start: Double, end: Double, otherStart: Double, otherEnd: Double): Boolean =
         start < otherEnd - 0.0001 && end > otherStart + 0.0001
+
+    private fun canPlaceRegion(start: Double, end: Double, others: List<Pair<Double, Double>>): Boolean =
+        end - start >= 0.25 && others.none { overlaps(start, end, it.first, it.second) }
 
     private fun addSpeedRegionCard(parent: LinearLayout, region: SpeedRegion) {
         val edit = editState ?: return
@@ -1143,6 +1129,8 @@ class MainActivity : AppCompatActivity() {
             isClickable = true
             setOnClickListener {
                 selectedSpeedRegionId = region.id
+                selectedZoomRegionId = null
+                zoomGestureEditing = false
                 redrawEditor(editorPosition())
             }
         }
@@ -1174,6 +1162,8 @@ class MainActivity : AppCompatActivity() {
                     setOnClickListener {
                         region.speed = speed
                         selectedSpeedRegionId = region.id
+                        selectedZoomRegionId = null
+                        zoomGestureEditing = false
                         redrawEditor(editorPosition())
                     }
                 },
@@ -1181,7 +1171,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
         card.addView(speedRow, matchWrap().apply { topMargin = dp(9) })
-        card.addView(regionBoundaryRow(region.id, speed = true), matchWrap().apply { topMargin = dp(7) })
         parent.addView(card, matchWrap().apply { bottomMargin = dp(9) })
     }
 
@@ -1193,6 +1182,7 @@ class MainActivity : AppCompatActivity() {
             isClickable = true
             setOnClickListener {
                 selectedZoomRegionId = region.id
+                selectedSpeedRegionId = null
                 zoomGestureEditing = true
                 redrawEditor((region.start + region.end) / 2.0, autoPlay = false)
             }
@@ -1226,6 +1216,7 @@ class MainActivity : AppCompatActivity() {
                     setOnClickListener {
                         region.zoom = zoom
                         selectedZoomRegionId = region.id
+                        selectedSpeedRegionId = null
                         zoomGestureEditing = true
                         redrawEditor((region.start + region.end) / 2.0, autoPlay = false)
                     }
@@ -1238,62 +1229,7 @@ class MainActivity : AppCompatActivity() {
             label("Foco: ${(region.centerX * 100).toInt()}% × ${(region.centerY * 100).toInt()}%", 11f, MUTED),
             matchWrap().apply { topMargin = dp(7) },
         )
-        card.addView(regionBoundaryRow(region.id, speed = false), matchWrap().apply { topMargin = dp(7) })
         parent.addView(card, matchWrap().apply { bottomMargin = dp(9) })
-    }
-
-    private fun regionBoundaryRow(regionId: Long, speed: Boolean): View = row().apply {
-        addView(
-            action("Início aqui").apply {
-                textSize = 11f
-                setOnClickListener { updateRegionBoundary(regionId, speed, startBoundary = true) }
-            },
-            LinearLayout.LayoutParams(0, dp(39), 1f),
-        )
-        addView(
-            action("Fim aqui").apply {
-                textSize = 11f
-                setOnClickListener { updateRegionBoundary(regionId, speed, startBoundary = false) }
-            },
-            LinearLayout.LayoutParams(0, dp(39), 1f).apply { leftMargin = dp(7) },
-        )
-    }
-
-    private fun updateRegionBoundary(regionId: Long, speed: Boolean, startBoundary: Boolean) {
-        val edit = editState ?: return
-        val current = editorPosition()
-        val start: Double
-        val end: Double
-        if (speed) {
-            val region = edit.speedRegions.firstOrNull { it.id == regionId } ?: return
-            start = if (startBoundary) current else region.start
-            end = if (startBoundary) region.end else current
-            if (!validRegionUpdate(start, end, edit.speedRegions.filterNot { it.id == regionId }.map { it.start to it.end })) return
-            region.start = start
-            region.end = end
-            selectedSpeedRegionId = regionId
-        } else {
-            val region = edit.zoomRegions.firstOrNull { it.id == regionId } ?: return
-            start = if (startBoundary) current else region.start
-            end = if (startBoundary) region.end else current
-            if (!validRegionUpdate(start, end, edit.zoomRegions.filterNot { it.id == regionId }.map { it.start to it.end })) return
-            region.start = start
-            region.end = end
-            selectedZoomRegionId = regionId
-        }
-        redrawEditor(current)
-    }
-
-    private fun validRegionUpdate(start: Double, end: Double, others: List<Pair<Double, Double>>): Boolean {
-        if (end - start < 0.25) {
-            Toast.makeText(this, "O início precisa ficar antes do fim.", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        if (others.any { overlaps(start, end, it.first, it.second) }) {
-            Toast.makeText(this, "Esse ajuste sobrepõe outra região.", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        return true
     }
 
     private fun redrawEditor(position: Double, autoPlay: Boolean = player?.isPlaying == true) {

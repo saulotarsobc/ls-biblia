@@ -26,7 +26,6 @@ data class EditState(
     val ranges: List<SourceRange>,
     val speedRegions: MutableList<SpeedRegion> = mutableListOf(),
     val zoomRegions: MutableList<ZoomRegion> = mutableListOf(),
-    var selectionStart: Double? = null,
 )
 
 data class EditAtom(

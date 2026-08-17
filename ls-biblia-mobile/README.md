@@ -8,6 +8,7 @@ Aplicativo Android nativo do LS Bíblia, escrito integralmente em Kotlin.
 - Download com reaproveitamento de arquivos em cache.
 - Gerenciador de cache para catálogos, vídeos e downloads incompletos.
 - Editor com linha do tempo, cortes por versículo, câmera lenta e zoom animado.
+- Faixas editáveis diretamente: arraste no vazio para criar, o meio para mover e as bordas para redimensionar.
 - Enquadramento direto no vídeo: pinça com dois dedos para ampliar e arrasto com um dedo para reposicionar.
 - Exportação H.264 para `Filmes/LS Bíblia`, com opções para assistir e compartilhar.
 - Layout protegido pelas barras de status e navegação do Android.
