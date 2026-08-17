@@ -72,7 +72,9 @@ class VideoExporter(private val context: Context) {
         temporaryFile = temp
 
         val items = atoms.map { atom -> createEditedItem(sourceFile, atom, edit.zoomRegions) }
-        val sequence = EditedMediaItemSequence.Builder(items).build()
+        val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+            .addItems(items)
+            .build()
         val composition = Composition.Builder(sequence).build()
         val activeTransformer = Transformer.Builder(context)
             .setVideoMimeType(MimeTypes.VIDEO_H264)
@@ -80,7 +82,7 @@ class VideoExporter(private val context: Context) {
                 object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                         transformer = null
-                        finishToGallery(temp, displayName, exportResult.durationMs)
+                        finishToGallery(temp, displayName, exportResult.approximateDurationMs)
                     }
 
                     override fun onError(

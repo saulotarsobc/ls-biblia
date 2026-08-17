@@ -1,9 +1,23 @@
 # LS Bíblia Mobile
 
-Base Android limpa para a versão mobile do LS Bíblia.
+Aplicativo Android nativo do LS Bíblia, escrito integralmente em Kotlin.
+
+## Recursos
+
+- Seleção de livro, capítulo, versículos e qualidade do vídeo.
+- Download com reaproveitamento de arquivos em cache.
+- Gerenciador de cache para catálogos, vídeos e downloads incompletos.
+- Editor com linha do tempo, cortes por versículo, câmera lenta e zoom animado.
+- Enquadramento direto no vídeo: pinça com dois dedos para ampliar e arrasto com um dedo para reposicionar.
+- Exportação H.264 para `Filmes/LS Bíblia`, com opções para assistir e compartilhar.
+- Layout protegido pelas barras de status e navegação do Android.
+
+## Executar no aparelho conectado
 
 ```powershell
-.\gradlew.bat installDebug
+.\gradlew.bat testDebugUnitTest assembleDebug installDebug
+adb shell am force-stop com.saulocosta.lsbiblia
+adb shell monkey -p com.saulocosta.lsbiblia -c android.intent.category.LAUNCHER 1
 ```
 
-O fluxo RTSP usa por padrão o stream extra (`subtype=1`) para reduzir latência e consumo no celular.
+Requisitos: JDK 17, Android SDK e um dispositivo Android 7.0 ou mais recente.

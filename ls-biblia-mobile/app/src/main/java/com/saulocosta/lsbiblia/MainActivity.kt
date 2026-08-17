@@ -22,7 +22,6 @@ import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -73,8 +72,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = BG
-        window.navigationBarColor = BG
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
@@ -791,9 +788,7 @@ class MainActivity : AppCompatActivity() {
 
         val playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            useController = true
-            controllerShowTimeoutMs = 3_000
-            controllerAutoShow = true
+            useController = false
             clipChildren = true
         }
         val previewFrame = FrameLayout(this).apply {
@@ -859,7 +854,6 @@ class MainActivity : AppCompatActivity() {
             } else {
                 "Enquadrar zoom"
             }
-            if (zoomGestureEditing) playerView.hideController()
         }
         zoomModeButton.setOnClickListener {
             val region = selectedZoomRegion() ?: return@setOnClickListener
@@ -922,11 +916,31 @@ class MainActivity : AppCompatActivity() {
                         TimelineMath.zoomAt(editorPosition(exoPlayer, ranges), edit.zoomRegions),
                     )
                 }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    val remainingIndex = if (event.actionIndex == 0) 1 else 0
+                    if (remainingIndex < event.pointerCount) {
+                        lastDragX = event.getX(remainingIndex)
+                        lastDragY = event.getY(remainingIndex)
+                    }
+                }
                 MotionEvent.ACTION_UP -> view.performClick()
             }
             true
         }
         refreshZoomGestureUi()
+
+        val playPause = action("▶  Reproduzir").apply {
+            contentDescription = "Reproduzir vídeo"
+            setOnClickListener {
+                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+            }
+        }
+        content.addView(
+            playPause,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                topMargin = dp(9)
+            },
+        )
 
         val timeLabel = label("", 13f, TEXT, Typeface.BOLD).apply { gravity = Gravity.CENTER }
         content.addView(timeLabel, matchWrap().apply {
@@ -1045,7 +1059,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (edit.zoomRegions.isNotEmpty()) {
             content.addView(
-                label("ZOOM  •  toque no vídeo para definir o foco", 11f, ZOOM, Typeface.BOLD),
+                label("ZOOM  •  pinça para ampliar e arraste para enquadrar", 11f, ZOOM, Typeface.BOLD),
                 matchWrap().apply {
                     topMargin = dp(7)
                     bottomMargin = dp(8)
@@ -1066,6 +1080,9 @@ class MainActivity : AppCompatActivity() {
                 if (exoPlayer.playbackParameters.speed != speed) {
                     exoPlayer.playbackParameters = PlaybackParameters(speed)
                 }
+                val nextPlayText = if (exoPlayer.isPlaying) "❚❚  Pausar" else "▶  Reproduzir"
+                if (playPause.text.toString() != nextPlayText) playPause.text = nextPlayText
+                playPause.contentDescription = if (exoPlayer.isPlaying) "Pausar vídeo" else "Reproduzir vídeo"
                 applyPreviewZoom(playerView, TimelineMath.zoomAt(current, edit.zoomRegions))
                 if (exoPlayer.isPlaying) previewHandler.postDelayed(this, 50)
             }

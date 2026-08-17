@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.abs
@@ -44,7 +45,11 @@ class EditorTimelineView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(147, 155, 171)
-        textSize = 10f * resources.displayMetrics.scaledDensity
+        textSize = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            10f,
+            resources.displayMetrics,
+        )
         typeface = Typeface.create("sans-serif", Typeface.BOLD)
     }
     private val lanePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(30, 34, 43) }
